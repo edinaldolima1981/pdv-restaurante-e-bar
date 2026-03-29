@@ -1,0 +1,98 @@
+{
+  "entities": {
+    "Table": {
+      "title": "Mesa",
+      "description": "Representa uma mesa no restaurante.",
+      "type": "object",
+      "properties": {
+        "number": { "type": "number", "description": "Número da mesa" },
+        "status": { "type": "string", "enum": ["available", "occupied"], "description": "Status da mesa" },
+        "capacity": { "type": "number", "description": "Capacidade da mesa" }
+      },
+      "required": ["number", "status"]
+    },
+    "Customer": {
+      "title": "Cliente",
+      "description": "Representa um cliente em uma mesa.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Nome do cliente" },
+        "tableId": { "type": "string", "description": "ID da mesa vinculada" },
+        "paymentStatus": { "type": "string", "enum": ["pending", "paid"], "description": "Status de pagamento do cliente" },
+        "joinedAt": { "type": "string", "format": "date-time", "description": "Data e hora de entrada" }
+      },
+      "required": ["name", "tableId", "paymentStatus"]
+    },
+    "Order": {
+      "title": "Pedido",
+      "description": "Representa um pedido feito por um cliente.",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string", "description": "ID do cliente que fez o pedido" },
+        "tableId": { "type": "string", "description": "ID da mesa onde o pedido foi feito" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "quantity": { "type": "number" },
+              "status": { "type": "string", "enum": ["pending", "preparing", "delivered"] }
+            }
+          }
+        },
+        "total": { "type": "number", "description": "Total do pedido" },
+        "status": { "type": "string", "enum": ["pending", "preparing", "delivered"], "description": "Status geral do pedido" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "tableId", "items", "total", "status"]
+    },
+    "Product": {
+      "title": "Produto",
+      "description": "Representa um item do cardápio.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "categoryId": { "type": "string" },
+        "image": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "price", "categoryId"]
+    },
+    "Category": {
+      "title": "Categoria",
+      "description": "Representa uma categoria de produtos.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "icon": { "type": "string" }
+      },
+      "required": ["name"]
+    }
+  },
+  "firestore": {
+    "/tables/{tableId}": {
+      "schema": "Table",
+      "description": "Coleção de mesas"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Coleção de clientes"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Coleção de pedidos"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Coleção de produtos do cardápio"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Coleção de categorias do cardápio"
+    }
+  }
+}

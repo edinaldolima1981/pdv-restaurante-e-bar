@@ -1,0 +1,5 @@
+{
+  "name": "Remix: PDV Restaurante",
+  "description": "Sistema PDV completo para restaurantes com gestão de mesas, pedidos, cardápio e caixa.",
+  "requestFramePermissions": []
+}

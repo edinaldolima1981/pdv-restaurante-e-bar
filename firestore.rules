@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: tables
+    // Fields:
+    //   - number: number (required)
+    //   - status: string (required, ['available', 'occupied'])
+    //   - capacity: number
+    //
+    // Collection: customers
+    // Fields:
+    //   - name: string (required)
+    //   - tableId: string (required)
+    //   - paymentStatus: string (required, ['pending', 'paid'])
+    //   - joinedAt: timestamp
+    //   - uid: string (the auth uid of the customer)
+    //
+    // Collection: orders
+    // Fields:
+    //   - customerId: string (required)
+    //   - tableId: string (required)
+    //   - items: list (required)
+    //   - total: number (required)
+    //   - status: string (required, ['pending', 'preparing', 'delivered', 'cancelled'])
+    //   - createdAt: timestamp
+    //
+    // Collection: products
+    // Fields:
+    //   - name: string (required)
+    //   - price: number (required)
+    //   - categoryId: string (required)
+    //
+    // Collection: categories
+    // Fields:
+    //   - name: string (required)
+    //   - icon: string
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "edinaldolima1981@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    match /tables/{tableId} {
+      allow read, write: if true;
+    }
+
+    match /customers/{customerId} {
+      allow read, write: if true;
+    }
+
+    match /orders/{orderId} {
+      allow read, write: if true;
+    }
+
+    match /products/{productId} {
+      allow read, write: if true;
+    }
+
+    match /categories/{categoryId} {
+      allow read, write: if true;
+    }
+
+    match /staff/{staffId} {
+      allow read, write: if true;
+    }
+
+    match /transactions/{transactionId} {
+      allow read, write: if true;
+    }
+
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}
