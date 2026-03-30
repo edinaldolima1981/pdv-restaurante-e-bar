@@ -9,15 +9,15 @@ export const MOCK_CATEGORIES: Category[] = [
 ];
 
 export const MOCK_PRODUCTS: Product[] = [
-  { id: '1', name: 'Coca-Cola 350ml', price: 6.50, categoryId: '1', image: 'https://picsum.photos/seed/coke/200/200' },
-  { id: '2', name: 'Suco de Laranja', price: 9.00, categoryId: '1', image: 'https://picsum.photos/seed/orange/200/200' },
-  { id: '3', name: 'Picanha na Brasa', price: 89.90, categoryId: '2', image: 'https://picsum.photos/seed/steak/200/200' },
-  { id: '4', name: 'Filé de Frango Grelhado', price: 45.00, categoryId: '2', image: 'https://picsum.photos/seed/chicken/200/200' },
-  { id: '5', name: 'Batata Frita Especial', price: 32.00, categoryId: '3', image: 'https://picsum.photos/seed/fries/200/200' },
-  { id: '6', name: 'Bruschetta Italiana', price: 28.00, categoryId: '3', image: 'https://picsum.photos/seed/bruschetta/200/200' },
-  { id: '7', name: 'Petit Gâteau', price: 24.00, categoryId: '4', image: 'https://picsum.photos/seed/cake/200/200' },
-  { id: '8', name: 'Pudim de Leite', price: 15.00, categoryId: '4', image: 'https://picsum.photos/seed/pudding/200/200' },
-  { id: '9', name: 'Vinho Tinto Reserva', price: 120.00, categoryId: '5', image: 'https://picsum.photos/seed/wine/200/200' },
+  { id: '1', name: 'Coca-Cola 350ml', price: 6.50, categoryId: '1', image: 'https://picsum.photos/seed/coke/200/200', stock: 50, minStock: 10, unit: 'un', trackStock: true },
+  { id: '2', name: 'Suco de Laranja', price: 9.00, categoryId: '1', image: 'https://picsum.photos/seed/orange/200/200', stock: 20, minStock: 5, unit: 'un', trackStock: true },
+  { id: '3', name: 'Picanha na Brasa', price: 89.90, categoryId: '2', image: 'https://picsum.photos/seed/steak/200/200', stock: 15, minStock: 3, unit: 'kg', trackStock: true },
+  { id: '4', name: 'Filé de Frango Grelhado', price: 45.00, categoryId: '2', image: 'https://picsum.photos/seed/chicken/200/200', stock: 20, minStock: 5, unit: 'kg', trackStock: true },
+  { id: '5', name: 'Batata Frita Especial', price: 32.00, categoryId: '3', image: 'https://picsum.photos/seed/fries/200/200', stock: 30, minStock: 10, unit: 'kg', trackStock: true },
+  { id: '6', name: 'Bruschetta Italiana', price: 28.00, categoryId: '3', image: 'https://picsum.photos/seed/bruschetta/200/200', stock: 25, minStock: 5, unit: 'un', trackStock: true },
+  { id: '7', name: 'Petit Gâteau', price: 24.00, categoryId: '4', image: 'https://picsum.photos/seed/cake/200/200', stock: 12, minStock: 4, unit: 'un', trackStock: true },
+  { id: '8', name: 'Pudim de Leite', price: 15.00, categoryId: '4', image: 'https://picsum.photos/seed/pudding/200/200', stock: 10, minStock: 3, unit: 'un', trackStock: true },
+  { id: '9', name: 'Vinho Tinto Reserva', price: 120.00, categoryId: '5', image: 'https://picsum.photos/seed/wine/200/200', stock: 8, minStock: 2, unit: 'un', trackStock: true },
 ];
 
 export const MOCK_CUSTOMERS: Customer[] = [

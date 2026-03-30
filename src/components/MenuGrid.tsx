@@ -15,9 +15,22 @@ interface MenuGridProps {
   guestName?: string | null;
   onChangeGuestName?: () => void;
   currentItems?: OrderItem[];
+  showCloseButton?: boolean;
 }
 
-export function MenuGrid({ onAddOrder, onClose, tableName, products, categories, onEditProduct, onDeleteProduct, guestName, onChangeGuestName, currentItems = [] }: MenuGridProps) {
+export function MenuGrid({ 
+  onAddOrder, 
+  onClose, 
+  tableName, 
+  products, 
+  categories, 
+  onEditProduct, 
+  onDeleteProduct, 
+  guestName, 
+  onChangeGuestName, 
+  currentItems = [],
+  showCloseButton = true
+}: MenuGridProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<OrderItem[]>([]);
@@ -73,29 +86,39 @@ export function MenuGrid({ onAddOrder, onClose, tableName, products, categories,
       <motion.div 
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white border border-slate-200 w-full max-w-7xl h-full sm:h-[95vh] rounded-none sm:rounded-[3rem] overflow-hidden flex flex-col lg:flex-row shadow-2xl shadow-slate-900/20"
+        className="bg-white border border-slate-200 w-full max-w-7xl h-full lg:h-[95vh] rounded-none lg:rounded-[3rem] overflow-hidden flex flex-col lg:flex-row shadow-2xl shadow-slate-900/20"
       >
         {/* Left: Menu */}
         <div className="flex-1 flex flex-col border-r border-slate-100 overflow-hidden relative">
           <div className="p-3 sm:p-8 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-50/50 gap-3 sm:gap-4">
-            <div>
-              <h2 className="text-lg sm:text-3xl font-black text-slate-800 tracking-tight uppercase">Cardápio</h2>
-              <div className="flex items-center gap-2 mt-0.5 sm:mt-1">
-                <p className="text-slate-400 font-bold text-[8px] sm:text-sm uppercase tracking-widest">Mesa: {tableName}</p>
-                {guestName && (
-                  <>
-                    <span className="text-slate-300">•</span>
-                    <p className="text-blue-600 font-bold text-[8px] sm:text-sm uppercase tracking-widest">{guestName}</p>
-                    <button 
-                      onClick={onChangeGuestName}
-                      className="ml-1 p-1 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors"
-                      title="Trocar Nome"
-                    >
-                      <Edit className="w-3 h-3" />
-                    </button>
-                  </>
-                )}
+            <div className="flex justify-between items-start w-full sm:w-auto">
+              <div>
+                <h2 className="text-lg sm:text-3xl font-black text-slate-800 tracking-tight uppercase">Cardápio</h2>
+                <div className="flex items-center gap-2 mt-0.5 sm:mt-1">
+                  <p className="text-slate-400 font-bold text-[8px] sm:text-sm uppercase tracking-widest">Mesa: {tableName}</p>
+                  {guestName && (
+                    <>
+                      <span className="text-slate-300">•</span>
+                      <p className="text-blue-600 font-bold text-[8px] sm:text-sm uppercase tracking-widest">{guestName}</p>
+                      <button 
+                        onClick={onChangeGuestName}
+                        className="ml-1 p-1 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors"
+                        title="Trocar Nome"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
+              {showCloseButton && (
+                <button 
+                  onClick={onClose}
+                  className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 sm:hidden"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
             </div>
             <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-5 sm:h-5 text-slate-400" />
@@ -137,7 +160,7 @@ export function MenuGrid({ onAddOrder, onClose, tableName, products, categories,
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-2 sm:p-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6 bg-slate-50/30 custom-scrollbar pb-32 lg:pb-8">
+          <div className="flex-1 overflow-y-auto p-2 sm:p-8 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2 sm:gap-6 bg-slate-50/30 custom-scrollbar pb-32 lg:pb-8">
             {filteredProducts.map(product => {
               const inCart = cart.find(item => item.productId === product.id);
               return (
@@ -229,10 +252,10 @@ export function MenuGrid({ onAddOrder, onClose, tableName, products, categories,
         <div className={cn(
           "w-full lg:w-[400px] bg-slate-50 flex flex-col border-t lg:border-t-0 lg:border-l border-slate-100 shrink-0 transition-all duration-500",
           "fixed lg:relative bottom-0 left-0 right-0 z-50 lg:z-0",
-          isCartExpanded ? "h-[85vh] lg:h-auto" : "h-[60px] lg:h-auto"
+          isCartExpanded ? "h-[90vh] lg:h-auto" : "h-[70px] lg:h-auto"
         )}>
           <div 
-            className="p-3 sm:p-8 border-b border-slate-100 flex flex-col gap-4 bg-white shrink-0 cursor-pointer lg:cursor-default"
+            className="p-4 sm:p-8 border-b border-slate-100 flex flex-col gap-4 bg-white shrink-0 cursor-pointer lg:cursor-default shadow-sm lg:shadow-none"
             onClick={() => {
               if (window.innerWidth < 1024) {
                 setIsCartExpanded(!isCartExpanded);
@@ -240,25 +263,34 @@ export function MenuGrid({ onAddOrder, onClose, tableName, products, categories,
             }}
           >
             <div className="flex justify-between items-center">
-              <h3 className="text-xs sm:text-xl font-black text-slate-800 flex items-center gap-2 sm:gap-3 tracking-tight">
-                <ShoppingCart className="w-3.5 h-3.5 sm:w-6 sm:h-6 text-blue-600" />
+              <h3 className="text-sm sm:text-xl font-black text-slate-800 flex items-center gap-2 sm:gap-3 tracking-tight">
+                <ShoppingCart className="w-4 h-4 sm:w-6 sm:h-6 text-blue-600" />
                 Pedido
                 {cart.length > 0 && (
-                  <span className="bg-blue-600 text-white px-1.5 py-0.5 rounded-full text-[8px] sm:text-xs">
+                  <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-[10px] sm:text-xs">
                     {cart.reduce((s, i) => s + i.quantity, 0)}
                   </span>
                 )}
               </h3>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 {cart.length > 0 && !isCartExpanded && (
-                  <span className="lg:hidden text-blue-600 font-black text-xs mr-1">{formatCurrency(cartTotal * 1.1)}</span>
+                  <span className="lg:hidden text-blue-600 font-black text-sm">{formatCurrency(cartTotal * 1.1)}</span>
                 )}
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onClose(); }} 
-                  className="p-1.5 sm:p-3 hover:bg-slate-100 rounded-lg sm:rounded-2xl text-slate-400 transition-colors"
-                >
-                  <X className="w-4 h-4 sm:w-6 sm:h-6" />
-                </button>
+                <div className="lg:hidden">
+                  {isCartExpanded ? (
+                    <X className="w-5 h-5 text-slate-400" />
+                  ) : (
+                    <div className="w-8 h-1 bg-slate-200 rounded-full" />
+                  )}
+                </div>
+                {showCloseButton && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); onClose(); }} 
+                    className="p-2 sm:p-3 hover:bg-slate-100 rounded-lg sm:rounded-2xl text-slate-400 transition-colors hidden sm:block"
+                  >
+                    <X className="w-5 h-5 sm:w-6 sm:h-6" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -399,7 +431,7 @@ export function MenuGrid({ onAddOrder, onClose, tableName, products, categories,
             </AnimatePresence>
           </div>
 
-          <div className="p-3 sm:p-8 border-t border-slate-100 bg-white space-y-2 sm:space-y-5 shrink-0">
+          <div className="p-4 sm:p-8 border-t border-slate-100 bg-white space-y-3 sm:space-y-5 shrink-0 pb-8 sm:pb-8">
             {activeCartTab === 'new' ? (
               <>
                 <div className="hidden sm:block space-y-3">
@@ -412,9 +444,9 @@ export function MenuGrid({ onAddOrder, onClose, tableName, products, categories,
                     <span className="text-slate-800 font-black text-xs">{formatCurrency(cartTotal * 0.1)}</span>
                   </div>
                 </div>
-                <div className="pt-1 sm:pt-6 border-t border-slate-100 flex justify-between items-center">
-                  <span className="text-xs sm:text-xl font-black text-slate-800 uppercase tracking-tight">Total</span>
-                  <span className="text-base sm:text-3xl font-black text-blue-600">{formatCurrency(cartTotal * 1.1)}</span>
+                <div className="pt-2 sm:pt-6 border-t border-slate-100 flex justify-between items-center">
+                  <span className="text-sm sm:text-xl font-black text-slate-800 uppercase tracking-tight">Total</span>
+                  <span className="text-lg sm:text-3xl font-black text-blue-600">{formatCurrency(cartTotal * 1.1)}</span>
                 </div>
                 <button 
                   disabled={cart.length === 0}
@@ -423,16 +455,16 @@ export function MenuGrid({ onAddOrder, onClose, tableName, products, categories,
                     setCart([]);
                     setActiveCartTab('history');
                   }}
-                  className="w-full py-3 sm:py-6 bg-[#003087] hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-300 text-white rounded-lg sm:rounded-[1.5rem] font-black text-[10px] sm:text-sm uppercase tracking-[0.1em] sm:tracking-[0.2em] transition-all shadow-xl shadow-blue-900/20 active:scale-95"
+                  className="w-full py-4 sm:py-6 bg-[#003087] hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-300 text-white rounded-xl sm:rounded-[1.5rem] font-black text-xs sm:text-sm uppercase tracking-[0.1em] sm:tracking-[0.2em] transition-all shadow-xl shadow-blue-900/20 active:scale-95"
                 >
                   Confirmar Pedido
                 </button>
               </>
             ) : (
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs sm:text-xl font-black text-slate-800 uppercase tracking-tight">Total Geral</span>
-                  <span className="text-base sm:text-3xl font-black text-blue-600">
+                  <span className="text-sm sm:text-xl font-black text-slate-800 uppercase tracking-tight">Total Geral</span>
+                  <span className="text-lg sm:text-3xl font-black text-blue-600">
                     {formatCurrency(currentItems.reduce((s, i) => s + (i.price * i.quantity), 0) * 1.1)}
                   </span>
                 </div>
@@ -441,7 +473,7 @@ export function MenuGrid({ onAddOrder, onClose, tableName, products, categories,
                     setActiveCartTab('new');
                     setIsCartExpanded(false);
                   }}
-                  className="w-full py-3 sm:py-6 bg-white border-2 border-slate-100 text-slate-600 rounded-lg sm:rounded-[1.5rem] font-black text-[10px] sm:text-sm uppercase tracking-widest transition-all hover:bg-slate-50"
+                  className="w-full py-4 sm:py-6 bg-white border-2 border-slate-100 text-slate-600 rounded-xl sm:rounded-[1.5rem] font-black text-xs sm:text-sm uppercase tracking-widest transition-all hover:bg-slate-50"
                 >
                   Fazer Novo Pedido
                 </button>

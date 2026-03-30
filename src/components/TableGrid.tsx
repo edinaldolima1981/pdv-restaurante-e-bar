@@ -1,7 +1,8 @@
 import React from 'react';
-import { Clock, QrCode, Plus, Table as TableIcon } from 'lucide-react';
+import { QrCode, Plus, Table as TableIcon, Timer, ChevronRight } from 'lucide-react';
 import { Table, TableStatus, Customer } from '../types';
 import { cn } from '../lib/utils';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface TableGridProps {
   tables: Table[];
@@ -52,132 +53,165 @@ export function TableGrid({ tables, customers, onSelectTable, onShowQRCode, onAd
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-6">
-        {tables.length === 0 ? (
-          <div className="col-span-full py-20 bg-white border border-dashed border-slate-300 rounded-[3rem] flex flex-col items-center justify-center text-slate-400 space-y-4">
-            <TableIcon className="w-12 h-12 opacity-20" />
-            <p className="font-bold uppercase tracking-widest text-sm">Nenhuma mesa cadastrada</p>
-            <button 
-              onClick={onAddTable}
-              className="mt-4 bg-[#003087] text-white px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center gap-3 shadow-2xl shadow-blue-900/20 hover:scale-105 transition-all"
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+        <AnimatePresence mode="popLayout">
+          {tables.length === 0 ? (
+            <motion.div 
+              layout
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="col-span-full py-20 bg-white border border-dashed border-slate-300 rounded-[2.5rem] flex flex-col items-center justify-center text-slate-400 space-y-4"
             >
-              <Plus className="w-5 h-5" />
-              Criar Primeira Mesa
-            </button>
-          </div>
-        ) : (
-          tables.map((table) => {
-            return (
-              <div
-                key={table.id}
-                onClick={() => onSelectTable(table)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onSelectTable(table);
-                  }
-                }}
-                className={cn(
-                  "bg-white p-4 sm:p-6 rounded-[2rem] sm:rounded-[2.5rem] border-2 transition-all duration-300 text-left relative group hover:shadow-2xl min-h-[280px] sm:min-h-[320px] flex flex-col cursor-pointer",
-                  table.status === 'occupied' 
-                    ? "border-4 border-blue-600 shadow-xl shadow-blue-900/10" 
-                    : "border-2 border-slate-100 hover:border-slate-200 shadow-sm",
-                  table.hasPendingOrder && "border-red-500 shadow-[0_0_40px_rgba(239,68,68,0.4)] ring-8 ring-red-500/20 animate-[pulse_1s_infinite]"
-                )}
+              <TableIcon className="w-12 h-12 opacity-20" />
+              <p className="font-bold uppercase tracking-widest text-sm">Nenhuma mesa cadastrada</p>
+              <button 
+                onClick={onAddTable}
+                className="mt-4 bg-[#003087] text-white px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center gap-3 shadow-2xl shadow-blue-900/20 hover:scale-105 transition-all"
               >
-              <div className="flex justify-between items-start mb-4 gap-2">
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-xl sm:text-2xl font-black text-slate-800 truncate">Mesa {table.number}</h3>
-                  <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{table.capacity} lugares</p>
-                </div>
-                <div className={cn(
-                  "px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl text-[9px] sm:text-[11px] font-black uppercase tracking-widest border shrink-0 shadow-sm",
-                  table.hasPendingOrder ? "bg-red-600 text-white border-red-700 shadow-lg shadow-red-900/30 scale-110" : STATUS_COLORS[table.status]
-                )}>
-                  {table.hasPendingOrder ? 'PEDIDO PENDENTE' : STATUS_LABELS[table.status]}
-                </div>
-              </div>
+                <Plus className="w-5 h-5" />
+                Criar Primeira Mesa
+              </button>
+            </motion.div>
+          ) : (
+            tables.map((table) => {
+              const isOccupied = table.status === 'occupied';
+              const hasPending = table.hasPendingOrder;
+              
+              return (
+                <motion.div
+                  key={table.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  onClick={() => onSelectTable(table)}
+                  className={cn(
+                    "bg-white border border-slate-200 rounded-[2.5rem] flex flex-col shadow-sm overflow-hidden transition-all duration-300 cursor-pointer group hover:shadow-2xl hover:border-blue-200 h-fit",
+                    hasPending && "border-red-500 shadow-[0_0_40px_rgba(239,68,68,0.1)]"
+                  )}
+                >
+                  {/* Header - Exact KDS Style */}
+                  <div className={cn(
+                    "p-6 flex items-center justify-between",
+                    hasPending ? "bg-red-50" : 
+                    isOccupied ? "bg-blue-50" : "bg-slate-50"
+                  )}>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Capacidade {table.capacity}</p>
+                      <h3 className="font-black text-xl text-slate-800">Mesa {table.number}</h3>
+                    </div>
+                    
+                    {isOccupied ? (
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-full shadow-sm">
+                        <Timer className={cn(
+                          "w-4 h-4",
+                          hasPending ? "text-red-500 animate-pulse" : "text-blue-500"
+                        )} />
+                        <span className="text-xs font-black text-slate-700">45 min</span>
+                      </div>
+                    ) : (
+                      <div className={cn(
+                        "px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-sm flex items-center gap-1.5 bg-white",
+                        table.status === 'reserved' ? "text-purple-600 border-purple-100" : "text-slate-400 border-slate-100"
+                      )}>
+                        <div className={cn(
+                          "w-1.5 h-1.5 rounded-full",
+                          table.status === 'reserved' ? "bg-purple-500" : "bg-slate-300"
+                        )} />
+                        {STATUS_LABELS[table.status]}
+                      </div>
+                    )}
+                  </div>
 
-              {table.status === 'occupied' && table.accounts.length > 0 && (
-                <div className="space-y-2 mb-4 max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
-                  {table.accounts.map(account => {
-                    const customer = customers.find(c => c.id === account.customerId);
-                    return (
-                      <div 
-                        key={account.id} 
-                        className={cn(
-                          "p-3 rounded-xl border transition-all",
-                          account.hasPendingOrder 
-                            ? "bg-red-600 border-red-400 text-white shadow-lg shadow-red-900/20" 
-                            : "bg-blue-600 border-blue-400 text-white shadow-md shadow-blue-900/10"
-                        )}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-black truncate">{customer?.name || 'Cliente'}</p>
-                          {account.hasPendingOrder && (
-                            <span className="w-2 h-2 bg-white rounded-full animate-pulse shrink-0" />
-                          )}
+                  {/* Body - KDS Item List Style */}
+                  <div className="p-6 space-y-4 flex-1">
+                    {isOccupied && table.accounts.length > 0 ? (
+                      table.accounts.map(account => {
+                        const customer = customers.find(c => c.id === account.customerId);
+                        return (
+                          <div key={account.id} className="flex items-center justify-between group/item">
+                            <div className="flex items-center gap-3">
+                              <div className={cn(
+                                "w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black",
+                                account.hasPendingOrder ? "bg-red-100 text-red-600" : "bg-blue-100 text-blue-600"
+                              )}>
+                                {account.items.length}x
+                              </div>
+                              <div>
+                                <p className="font-bold text-sm text-slate-700 truncate max-w-[150px]">
+                                  {customer?.name || 'Cliente'}
+                                </p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                  {new Date(account.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                              </div>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover/item:text-blue-500 transition-colors" />
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-3 py-12">
+                        <div className="w-16 h-16 rounded-[2rem] bg-slate-50 flex items-center justify-center">
+                          <TableIcon className="w-8 h-8 opacity-20" />
                         </div>
-                        <p className="text-[8px] font-bold opacity-70 uppercase tracking-widest mt-0.5">
-                          {account.items.length} itens • {new Date(account.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <p className="text-[10px] font-black uppercase tracking-widest opacity-50">
+                          {table.status === 'available' ? 'Mesa Disponível' : 
+                           table.status === 'reserved' ? 'Mesa Reservada' : 'Em Limpeza'}
                         </p>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                    )}
+                  </div>
 
-              <div className="flex items-center justify-between mt-auto">
-                <div className="flex -space-x-2">
-                  {[...Array(table.capacity)].map((_, i) => (
-                    <div 
-                      key={i} 
+                  {/* Footer - KDS Action Button Style */}
+                  <div className="p-6 bg-slate-50/50 border-t border-slate-100 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex -space-x-2">
+                        {[...Array(Math.min(4, table.capacity))].map((_, i) => (
+                          <div 
+                            key={i} 
+                            className={cn(
+                              "w-8 h-8 rounded-full border-2 border-white flex items-center justify-center shadow-sm",
+                              isOccupied ? "bg-blue-100" : "bg-slate-100"
+                            )}
+                          >
+                            <div className={cn(
+                              "w-2.5 h-2.5 rounded-full",
+                              isOccupied ? "bg-blue-500" : "bg-slate-300"
+                            )} />
+                          </div>
+                        ))}
+                        {table.capacity > 4 && (
+                          <div className="w-8 h-8 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center shadow-sm">
+                            <span className="text-[10px] font-black text-slate-400">+{table.capacity - 4}</span>
+                          </div>
+                        )}
+                      </div>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onShowQRCode(table); }}
+                        className="p-3 bg-white text-slate-400 hover:text-blue-600 rounded-2xl shadow-sm transition-all border border-slate-100 hover:scale-110"
+                      >
+                        <QrCode className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <button 
                       className={cn(
-                        "w-8 h-8 rounded-full border-2 border-white flex items-center justify-center shadow-sm",
-                        table.status === 'occupied' ? "bg-blue-200" : "bg-slate-100"
+                        "w-full py-5 rounded-[1.5rem] font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg",
+                        isOccupied 
+                          ? "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-900/20" 
+                          : "bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-900/20"
                       )}
                     >
-                      <div className={cn(
-                        "w-2.5 h-2.5 rounded-full",
-                        table.status === 'occupied' ? "bg-blue-500" : "bg-slate-300"
-                      )} />
-                    </div>
-                  ))}
-                </div>
-                
-                {table.status === 'occupied' && (
-                  <div className="flex items-center gap-2 text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span className="text-[11px] font-black uppercase tracking-widest">45 min</span>
+                      {isOccupied ? 'Gerenciar Mesa' : 'Abrir Mesa'}
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
                   </div>
-                )}
-              </div>
-
-              {table.hasPendingOrder && (
-                <div className="absolute inset-0 rounded-[2.5rem] border-4 border-red-500 animate-[pulse_1s_infinite] pointer-events-none z-10" />
-              )}
-
-              <div className="absolute top-4 right-4 flex gap-2">
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onShowQRCode(table); }}
-                  className="p-2 bg-white/90 backdrop-blur-sm text-slate-400 hover:text-blue-600 rounded-xl shadow-sm transition-all border border-slate-100"
-                  title="Ver QR Code da Mesa"
-                >
-                  <QrCode className="w-4 h-4" />
-                </button>
-                {table.status === 'occupied' && (
-                  <div className={cn(
-                    "w-3 h-3 rounded-full animate-ping",
-                    table.hasPendingOrder ? "bg-red-600" : "bg-blue-600"
-                  )} />
-                )}
-              </div>
-            </div>
-          );
-        })
-        )}
+                </motion.div>
+              );
+            })
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

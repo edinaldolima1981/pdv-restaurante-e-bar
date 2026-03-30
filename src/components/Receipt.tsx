@@ -3,6 +3,7 @@ import { Printer, X, Receipt as ReceiptIcon } from 'lucide-react';
 import { OrderItem, Customer } from '../types';
 import { formatCurrency } from '../lib/utils';
 import { motion } from 'motion/react';
+import { toast } from 'sonner';
 
 interface ReceiptProps {
   items: OrderItem[];
@@ -99,13 +100,25 @@ export function Receipt({ items, customer, guestName, tableNumber, onClose }: Re
           </div>
         </div>
 
-        <div className="p-6 bg-slate-50 border-t border-slate-100 print:hidden">
+        <div className="p-6 bg-slate-50 border-t border-slate-100 print:hidden space-y-3">
           <button 
             onClick={handlePrint}
             className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-900/20 flex items-center justify-center gap-3 hover:scale-105 transition-all"
           >
             <Printer className="w-5 h-5" />
             Imprimir Recibo
+          </button>
+          <button 
+            onClick={() => {
+              toast.info('Iniciando emissão de NFC-e...', {
+                description: 'Esta funcionalidade requer integração com SEFAZ via API fiscal.'
+              });
+              setTimeout(() => toast.success('NFC-e emitida com sucesso! (Simulação)'), 2000);
+            }}
+            className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-3 hover:scale-105 transition-all"
+          >
+            <ReceiptIcon className="w-5 h-5" />
+            Emitir NFC-e Fiscal
           </button>
         </div>
       </motion.div>

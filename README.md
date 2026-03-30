@@ -1,4 +1,4 @@
-# PDV Restaurante
+# PDV Anota Facil
 
 Sistema de gestão para restaurante — mesas, pedidos, cardápio, caixa e relatórios.
 

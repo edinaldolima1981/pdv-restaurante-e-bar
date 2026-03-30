@@ -14,6 +14,9 @@ export interface Customer {
   observation?: string;
   points?: number;
   lastVisit?: string;
+  visitCount?: number;
+  totalSpent?: number;
+  loyaltyLevel?: 'bronze' | 'silver' | 'gold' | 'platinum';
 }
 
 export interface Staff {
@@ -30,6 +33,7 @@ export interface Staff {
   address: string;
   status: 'active' | 'inactive';
   startDate: string;
+  permissions?: string[]; // e.g., ['admin', 'sales', 'inventory', 'financial']
 }
 
 export interface TableAccount {
@@ -40,6 +44,9 @@ export interface TableAccount {
   hasPendingOrder: boolean;
   openedAt: string;
   paymentStatus: PaymentStatus;
+  paymentMethod?: 'cash' | 'card' | 'pix' | 'other';
+  discount?: number;
+  tax?: number;
 }
 
 export interface Table {
@@ -61,9 +68,14 @@ export interface Product {
   id: string;
   name: string;
   price: number;
+  costPrice?: number;
   categoryId: string;
   image?: string;
   description?: string;
+  stock: number;
+  minStock: number;
+  unit: string; // 'un', 'kg', 'lt', etc.
+  trackStock: boolean;
 }
 
 export interface OrderItem {
@@ -72,19 +84,27 @@ export interface OrderItem {
   name: string;
   price: number;
   quantity: number;
-  status: 'awaiting_confirmation' | 'pending' | 'preparing' | 'delivered';
+  status: 'awaiting_confirmation' | 'pending' | 'preparing' | 'delivered' | 'cancelled';
   timestamp: string;
+  notes?: string;
 }
 
 export interface Order {
   id: string;
-  tableId: string;
+  tableId?: string;
   customerId: string;
   items: OrderItem[];
   status: OrderStatus;
   total: number;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  createdAt: any;
+  subtotal: number;
+  discount: number;
+  tax: number;
+  paymentMethod: 'cash' | 'card' | 'pix' | 'other';
+  type: 'dine_in' | 'delivery' | 'takeaway';
+  deliveryAddress?: string;
+  deliveryFee?: number;
+  createdAt: string | number | Date;
+  closedAt?: string | number | Date;
 }
 
 export interface DailyStats {
@@ -93,12 +113,26 @@ export interface DailyStats {
   averageTicket: number;
   salesByCategory: { name: string; value: number }[];
   hourlySales: { hour: string; sales: number }[];
+  profit: number;
 }
 
 export interface Transaction {
   id: string;
   date: string;
   type: 'income' | 'expense';
+  category: string; // 'sales', 'purchase', 'salary', 'rent', 'other'
   amount: number;
   description: string;
+  paymentMethod: 'cash' | 'card' | 'pix' | 'other';
+  status: 'pending' | 'completed' | 'cancelled';
+}
+
+export interface InventoryLog {
+  id: string;
+  productId: string;
+  type: 'in' | 'out' | 'adjustment';
+  quantity: number;
+  reason: string;
+  date: string;
+  userId: string;
 }

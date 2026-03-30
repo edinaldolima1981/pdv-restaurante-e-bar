@@ -6,12 +6,17 @@ import { MenuGrid } from './components/MenuGrid';
 import { TableDetails } from './components/TableDetails';
 import { Receipt } from './components/Receipt';
 import { QRCodeModal } from './components/QRCodeModal';
+import { InventoryManager } from './components/InventoryManager';
+import { FinancialModule } from './components/FinancialModule';
+import { KDS } from './components/KDS';
+import { CRM } from './components/CRM';
+import { DeliveryManager } from './components/DeliveryManager';
 import { MOCK_PRODUCTS, MOCK_CATEGORIES, MOCK_CUSTOMERS } from './mockData';
-import { Table, OrderItem, Order, Customer, Staff, Category, Product, Transaction, TableAccount } from './types';
+import { Table, OrderItem, Order, Customer, Staff, Category, Product, Transaction, TableAccount, OrderStatus } from './types';
 import { Toaster, toast } from 'sonner';
 import { GoogleGenAI } from "@google/genai";
-import { generateAccountingPDF } from './lib/pdfGenerator';
-import { MessageSquare, Sparkles, X, UtensilsCrossed, History, ShoppingBag, Table as TableIcon, Plus, Users, BarChart3, UserPlus, Phone, Mail, Star, Clock as ClockIcon, CheckCircle2, Wallet, TrendingUp, Edit, Trash2, Download, Search, User as UserIcon, ArrowRight as ArrowRightIcon } from 'lucide-react';
+import { generateAccountingPDF, generateCashClosurePDF } from './lib/pdfGenerator';
+import { MessageSquare, Sparkles, X, UtensilsCrossed, History, ShoppingBag, Table as TableIcon, Plus, Users, UserPlus, Phone, Mail, Star, Clock as ClockIcon, CheckCircle2, Wallet, Edit, Trash2, Download, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from './lib/utils';
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
@@ -38,6 +43,7 @@ import {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [tables, setTables] = useState<Table[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -58,7 +64,6 @@ export default function App() {
   const [isClientAppOpen, setIsClientAppOpen] = useState(false);
   const [clientTableId, setClientTableId] = useState<string | null>(null);
   const [clientGuestName, setClientGuestName] = useState<string | null>(() => localStorage.getItem('clientGuestName'));
-  const [clientTempName, setClientTempName] = useState('');
 
   const [newCustomer, setNewCustomer] = useState({ 
     name: '', 
@@ -86,6 +91,8 @@ export default function App() {
   const [qrCodeTable, setQrCodeTable] = useState<Table | null>(null);
 
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+  const [isMergingTable, setIsMergingTable] = useState(false);
+  const [sourceTableId, setSourceTableId] = useState<string | null>(null);
   const [transactionType, setTransactionType] = useState<'income' | 'expense'>('income');
   const [transactionAmount, setTransactionAmount] = useState('');
   const [transactionDescription, setTransactionDescription] = useState('');
@@ -163,7 +170,25 @@ export default function App() {
       unsubOrders();
       unsubTransactions();
     };
-  }, [isAuthReady, user, setTables, setCustomers, setCategories, setProducts, setStaff, setOrders, setTransactions]);
+  }, [isAuthReady, user]);
+
+  // Sync selectedTable with real-time updates from tables array
+  useEffect(() => {
+    if (selectedTable) {
+      const updatedTable = tables.find(t => t.id === selectedTable.id);
+      if (updatedTable) {
+        // Only update if there's an actual change to avoid infinite loops
+        // We compare the stringified version for simplicity as it's a small object
+        if (JSON.stringify(updatedTable) !== JSON.stringify(selectedTable)) {
+          setSelectedTable(updatedTable);
+        }
+      } else {
+        // Table was deleted or something, close details
+        setSelectedTable(null);
+        setSelectedAccountId(null);
+      }
+    }
+  }, [tables, selectedTable]);
 
   // Handle Client App Entry
   useEffect(() => {
@@ -278,8 +303,14 @@ export default function App() {
   const [newProduct, setNewProduct] = useState({
     name: '',
     price: 0,
+    costPrice: 0,
     categoryId: categories[0]?.id || '',
-    image: ''
+    image: '',
+    description: '',
+    stock: 0,
+    minStock: 0,
+    unit: 'un',
+    trackStock: true
   });
 
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -332,7 +363,11 @@ export default function App() {
   };
 
   const handleOpenTable = async (customerId: string, guestName?: string) => {
-    if (!selectedTable) return;
+    const tableId = selectedTable?.id;
+    if (!tableId) return;
+    
+    const table = tables.find(t => t.id === tableId);
+    if (!table) return;
     
     const newAccount: TableAccount = {
       id: Math.random().toString(36).substr(2, 9),
@@ -344,7 +379,7 @@ export default function App() {
       paymentStatus: 'pending'
     };
 
-    const updatedAccounts = [...selectedTable.accounts, newAccount].map(acc => ({
+    const updatedAccounts = [...table.accounts, newAccount].map(acc => ({
       ...acc,
       guestName: acc.guestName || null,
       items: acc.items.map(item => ({
@@ -354,7 +389,7 @@ export default function App() {
     }));
 
     try {
-      await updateDoc(doc(db, 'tables', selectedTable.id), {
+      await updateDoc(doc(db, 'tables', tableId), {
         status: 'occupied',
         accounts: updatedAccounts
       });
@@ -365,7 +400,7 @@ export default function App() {
       setTempGuestName('');
       setIsMenuOpen(true);
       
-      toast.success(`Mesa ${selectedTable.number} aberta!`);
+      toast.success(`Mesa ${table.number} aberta!`);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'tables');
     }
@@ -456,6 +491,53 @@ export default function App() {
         hasPendingOrder: updatedAccounts.some(acc => acc.hasPendingOrder)
       });
       toast.success('Pedido confirmado!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'tables');
+    }
+  };
+
+  const handleMergeTable = async (targetTableId: string) => {
+    if (!sourceTableId || sourceTableId === targetTableId) return;
+
+    const sourceTable = tables.find(t => t.id === sourceTableId);
+    const targetTable = tables.find(t => t.id === targetTableId);
+
+    if (!sourceTable || !targetTable) return;
+
+    try {
+      const batch = writeBatch(db);
+
+      // Merge accounts
+      const mergedAccounts = [...targetTable.accounts, ...sourceTable.accounts].map(acc => ({
+        ...acc,
+        guestName: acc.guestName || null,
+        items: acc.items.map(item => ({
+          ...item,
+          id: item.id || Math.random().toString(36).substr(2, 9)
+        }))
+      }));
+
+      // Update target table
+      batch.update(doc(db, 'tables', targetTableId), {
+        status: 'occupied',
+        accounts: mergedAccounts,
+        hasPendingOrder: targetTable.hasPendingOrder || sourceTable.hasPendingOrder
+      });
+
+      // Reset source table
+      batch.update(doc(db, 'tables', sourceTableId), {
+        status: 'available',
+        accounts: [],
+        hasPendingOrder: false
+      });
+
+      await batch.commit();
+      
+      setIsMergingTable(false);
+      setSourceTableId(null);
+      setSelectedTable(null);
+      
+      toast.success(`Mesa ${sourceTable.number} juntada à Mesa ${targetTable.number}!`);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'tables');
     }
@@ -632,8 +714,14 @@ export default function App() {
     setNewProduct({
       name: product.name,
       price: product.price,
+      costPrice: product.costPrice || 0,
       categoryId: product.categoryId,
-      image: product.image || ''
+      image: product.image || '',
+      description: product.description || '',
+      stock: product.stock || 0,
+      minStock: product.minStock || 0,
+      unit: product.unit || 'un',
+      trackStock: product.trackStock ?? true
     });
     setIsAddingProduct(true);
   };
@@ -673,8 +761,14 @@ export default function App() {
       setNewProduct({
         name: '',
         price: 0,
+        costPrice: 0,
         categoryId: categories[0]?.id || '',
-        image: ''
+        image: '',
+        description: '',
+        stock: 0,
+        minStock: 0,
+        unit: 'un',
+        trackStock: true
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'products');
@@ -751,6 +845,53 @@ export default function App() {
     }
   };
 
+  const handleUpdateCustomerStats = async (customerId: string, amount: number) => {
+    if (!customerId || customerId === 'avulso') return;
+    const customer = customers.find(c => c.id === customerId);
+    if (!customer) return;
+
+    try {
+      await updateDoc(doc(db, 'customers', customerId), {
+        visitCount: (customer.visitCount || 0) + 1,
+        totalSpent: (customer.totalSpent || 0) + amount,
+        lastVisit: new Date().toISOString().split('T')[0],
+        points: (customer.points || 0) + Math.floor(amount)
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'customers');
+    }
+  };
+
+  const handleDeductStock = async (items: OrderItem[]) => {
+    const batch = writeBatch(db);
+    let hasUpdates = false;
+
+    for (const item of items) {
+      const product = products.find(p => p.id === item.productId);
+      if (product && product.trackStock) {
+        batch.update(doc(db, 'products', product.id), {
+          stock: product.stock - item.quantity
+        });
+        
+        const logRef = doc(collection(db, 'inventoryLogs'));
+        batch.set(logRef, {
+          productId: product.id,
+          type: 'out',
+          quantity: item.quantity,
+          reason: 'Venda',
+          date: new Date().toISOString(),
+          userId: user?.uid || 'system',
+          createdAt: serverTimestamp()
+        });
+        hasUpdates = true;
+      }
+    }
+
+    if (hasUpdates) {
+      await batch.commit();
+    }
+  };
+
   const handleCloseAccount = async (tableId: string, accountId: string) => {
     const table = tables.find(t => t.id === tableId);
     if (!table) return;
@@ -768,7 +909,9 @@ export default function App() {
         amount: total,
         description: `Venda Mesa ${table.number} - Cliente: ${customers.find(c => c.id === account.customerId)?.name || account.guestName || 'Avulso'}`,
         date: new Date().toISOString(),
-        paymentMethod: 'card'
+        paymentMethod: account.paymentMethod || 'card',
+        category: 'sales',
+        status: 'completed'
       });
 
       // Add closed order record
@@ -776,12 +919,25 @@ export default function App() {
         tableId,
         tableNumber: table.number,
         accountId: account.id,
+        customerId: account.customerId,
         customerName: account.guestName || customers.find(c => c.id === account.customerId)?.name || 'Cliente',
         items: account.items,
         total,
+        subtotal,
         status: 'closed',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        closedAt: serverTimestamp(),
+        paymentMethod: account.paymentMethod || 'card',
+        type: 'dine_in'
       });
+
+      // Deduct stock
+      await handleDeductStock(account.items);
+
+      // Update customer stats
+      if (account.customerId) {
+        await handleUpdateCustomerStats(account.customerId, total);
+      }
 
       // Update table
       const remainingAccounts = table.accounts.filter(acc => acc.id !== accountId);
@@ -815,7 +971,9 @@ export default function App() {
         amount: totalWithTax,
         description: `Venda Mesa ${table.number} - Fechamento Completo (${table.accounts.length} contas)`,
         date: new Date().toISOString(),
-        paymentMethod: 'card'
+        paymentMethod: 'card',
+        category: 'sales',
+        status: 'completed'
       });
 
       // Add closed order record
@@ -826,9 +984,24 @@ export default function App() {
         customerName: `Mesa ${table.number} (Fechamento Completo)`,
         items: table.accounts.flatMap(acc => acc.items),
         total: totalWithTax,
+        subtotal: totalSubtotal,
         status: 'closed',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        closedAt: serverTimestamp(),
+        paymentMethod: 'card',
+        type: 'dine_in'
       });
+
+      // Deduct stock
+      await handleDeductStock(table.accounts.flatMap(acc => acc.items));
+
+      // Update customer stats for each account
+      for (const account of table.accounts) {
+        if (account.customerId) {
+          const accTotal = account.items.reduce((sum, item) => sum + (item.price * item.quantity), 0) * 1.1;
+          await handleUpdateCustomerStats(account.customerId, accTotal);
+        }
+      }
 
       // Update table
       await updateDoc(doc(db, 'tables', tableId), {
@@ -893,6 +1066,90 @@ export default function App() {
     }
   };
 
+  const handleUpdateItemStatus = async (orderId: string, itemId: string, status: OrderItem['status']) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    const updatedItems = order.items.map(item => 
+      item.id === itemId ? { ...item, status } : item
+    );
+
+    try {
+      await updateDoc(doc(db, 'orders', orderId), {
+        items: updatedItems,
+        status: updatedItems.every(i => i.status === 'delivered') ? 'delivered' : 'preparing'
+      });
+      toast.success('Status do item atualizado!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'orders');
+    }
+  };
+
+  const handleCompleteOrder = async (orderId: string) => {
+    try {
+      await updateDoc(doc(db, 'orders', orderId), {
+        status: 'delivered',
+        items: orders.find(o => o.id === orderId)?.items.map(i => ({ ...i, status: 'delivered' })) || []
+      });
+      toast.success('Pedido finalizado!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'orders');
+    }
+  };
+
+  const handleUpdateStock = async (productId: string, quantity: number, type: 'in' | 'out' | 'adjustment', reason: string) => {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+
+    const newStock = type === 'in' ? product.stock + quantity : 
+                    type === 'out' ? product.stock - quantity : quantity;
+
+    try {
+      const batch = writeBatch(db);
+      
+      // Update product stock
+      batch.update(doc(db, 'products', productId), { stock: newStock });
+      
+      // Add inventory log
+      const logRef = doc(collection(db, 'inventoryLogs'));
+      batch.set(logRef, {
+        productId,
+        type,
+        quantity,
+        reason,
+        date: new Date().toISOString(),
+        userId: user?.uid || 'system',
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+      toast.success('Estoque atualizado!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'products');
+    }
+  };
+
+  const handleAddTransaction = async (transaction: Omit<Transaction, 'id'>) => {
+    try {
+      await addDoc(collection(db, 'transactions'), {
+        ...transaction,
+        createdAt: serverTimestamp()
+      });
+      toast.success('Lançamento realizado!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'transactions');
+    }
+  };
+
+  const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus) => {
+    try {
+      await updateDoc(doc(db, 'orders', orderId), { status });
+      toast.success('Status do pedido atualizado!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'orders');
+    }
+  };
+
   const handleAiAsk = async () => {
     if (!aiQuery.trim()) return;
     
@@ -937,62 +1194,15 @@ export default function App() {
   if (isClientAppOpen && clientTableId) {
     const table = tables.find(t => t.id === clientTableId);
     
-    if (!clientGuestName) {
-      return (
-        <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
-          <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center mb-8">
-            <UserIcon className="w-12 h-12 text-blue-600" />
-          </div>
-          <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight mb-4">Bem-vindo!</h2>
-          <p className="text-slate-500 font-bold max-w-xs leading-relaxed mb-8">
-            Você está na <span className="text-blue-600">Mesa {table?.number}</span>. Informe seu nome para acessar o cardápio.
-          </p>
-          
-          <div className="w-full max-w-xs mb-8">
-            <input 
-              type="text"
-              placeholder="Seu Nome"
-              value={clientTempName}
-              onChange={(e) => setClientTempName(e.target.value)}
-              className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-lg font-bold text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
-            />
-          </div>
-
-          <div className="flex flex-col gap-4 w-full max-w-xs">
-            <button 
-              onClick={() => {
-                if (clientTempName.trim()) {
-                  setClientGuestName(clientTempName.trim());
-                  localStorage.setItem('clientGuestName', clientTempName.trim());
-                } else {
-                  toast.error('Por favor, informe seu nome.');
-                }
-              }}
-              className="w-full py-4 bg-[#003087] text-white font-black text-xs uppercase tracking-widest rounded-2xl shadow-lg shadow-blue-900/20 hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
-            >
-              Acessar Cardápio
-              <ArrowRightIcon className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={() => setIsClientAppOpen(false)}
-              className="text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      );
-    }
-
     return (
       <div className="fixed inset-0 z-[100] bg-white overflow-hidden">
         <MenuGrid 
           tableName={`Mesa ${table?.number}`}
-          guestName={clientGuestName}
+          guestName={clientGuestName || 'Cliente'}
+          showCloseButton={false}
           onChangeGuestName={() => {
             setClientGuestName(null);
             localStorage.removeItem('clientGuestName');
-            setClientTempName('');
           }}
           onClose={() => setIsClientAppOpen(false)}
           currentItems={table?.accounts[0]?.items || []}
@@ -1082,6 +1292,8 @@ export default function App() {
         onSeedData={seedData}
         onLogin={handleLogin}
         user={user}
+        isCollapsed={isSidebarCollapsed}
+        setIsCollapsed={setIsSidebarCollapsed}
       />
       
       <main className="flex-1 flex flex-col min-w-0 relative">
@@ -1558,16 +1770,45 @@ export default function App() {
                       <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Movimentações do Período</h3>
                       <button 
                         onClick={() => {
-                          const monthYear = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-                          generateAccountingPDF(transactions, monthYear);
-                          toast.success('Relatório gerado com sucesso!', {
-                            description: 'O PDF foi baixado para o seu dispositivo.'
+                          const now = new Date();
+                          const currentMonth = now.getMonth();
+                          const currentYear = now.getFullYear();
+                          
+                          const monthTransactions = transactions.filter(t => {
+                            const d = new Date(t.date);
+                            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
                           });
+
+                          const previousTransactions = transactions.filter(t => {
+                            const d = new Date(t.date);
+                            return d.getFullYear() < currentYear || (d.getFullYear() === currentYear && d.getMonth() < currentMonth);
+                          });
+
+                          const initialBalance = previousTransactions.reduce((sum, t) => {
+                            return sum + (t.type === 'income' ? t.amount : -t.amount);
+                          }, 0);
+
+                          const monthYear = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                          generateAccountingPDF(monthTransactions, monthYear, initialBalance);
+                          toast.success('Relatório gerado com sucesso!');
                         }}
                         className="flex items-center gap-2 px-4 py-2 bg-[#003087] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-900/10"
                       >
                         <Download className="w-3 h-3" />
                         Relatório Contador (PDF)
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const today = new Date().toLocaleDateString('pt-BR');
+                          generateCashClosurePDF(orders, transactions, today);
+                          toast.success('Fechamento de caixa gerado!', {
+                            description: 'O resumo do dia foi baixado em PDF.'
+                          });
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-900/10"
+                      >
+                        <Download className="w-3 h-3" />
+                        Fechamento Diário (PDF)
                       </button>
                     </div>
                     <div className="bg-white border border-slate-200 rounded-[3rem] overflow-hidden shadow-sm overflow-x-auto">
@@ -1669,70 +1910,88 @@ export default function App() {
                 </div>
               </div>
             )}
+            {activeTab === 'kds' && (
+              <KDS 
+                orders={orders} 
+                onUpdateItemStatus={handleUpdateItemStatus}
+                onCompleteOrder={handleCompleteOrder}
+              />
+            )}
+            {activeTab === 'inventory' && (
+              <InventoryManager 
+                products={products}
+                onUpdateStock={handleUpdateStock}
+              />
+            )}
+            {activeTab === 'financial' && (
+              <FinancialModule 
+                transactions={transactions}
+                onAddTransaction={handleAddTransaction}
+              />
+            )}
+            {activeTab === 'crm' && (
+              <CRM 
+                customers={customers}
+              />
+            )}
+            {activeTab === 'delivery' && (
+              <DeliveryManager 
+                orders={orders}
+                onUpdateOrderStatus={handleUpdateOrderStatus}
+              />
+            )}
             {activeTab === 'reports' && (
-              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="flex justify-between items-end">
+              <div className="space-y-6 sm:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-4">
                   <div>
-                    <h2 className="text-5xl font-black text-slate-800 tracking-tighter uppercase">Relatórios</h2>
-                    <p className="text-slate-500 font-bold text-lg mt-2">Análise de desempenho e faturamento.</p>
+                    <h2 className="text-3xl sm:text-5xl font-black text-slate-800 tracking-tighter uppercase">Relatórios</h2>
+                    <p className="text-slate-500 font-bold text-sm sm:text-lg mt-1 sm:mt-2">Análise de desempenho e faturamento.</p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
+                    <button 
+                      onClick={() => {
+                        const now = new Date();
+                        const currentMonth = now.getMonth();
+                        const currentYear = now.getFullYear();
+                        
+                        const monthTransactions = transactions.filter(t => {
+                          const d = new Date(t.date);
+                          return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+                        });
+
+                        const previousTransactions = transactions.filter(t => {
+                          const d = new Date(t.date);
+                          return d.getFullYear() < currentYear || (d.getFullYear() === currentYear && d.getMonth() < currentMonth);
+                        });
+
+                        const initialBalance = previousTransactions.reduce((sum, t) => {
+                          return sum + (t.type === 'income' ? t.amount : -t.amount);
+                        }, 0);
+
+                        const monthYear = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                        generateAccountingPDF(monthTransactions, monthYear, initialBalance);
+                        toast.success('Relatório gerado com sucesso!');
+                      }}
+                      className="flex items-center justify-center gap-2 sm:gap-3 px-4 sm:px-8 py-3 sm:py-5 bg-white border border-slate-200 text-slate-600 rounded-xl sm:rounded-[2rem] font-black text-[10px] sm:text-sm uppercase tracking-widest hover:bg-slate-50 transition-all shadow-lg sm:shadow-xl shadow-slate-900/5"
+                    >
+                      <Download className="w-4 h-4 sm:w-5 h-5" />
+                      Relatório Contador
+                    </button>
+                    <button 
+                      onClick={() => {
+                        const today = new Date().toLocaleDateString('pt-BR');
+                        generateCashClosurePDF(orders, transactions, today);
+                        toast.success('Fechamento gerado com sucesso!');
+                      }}
+                      className="flex items-center justify-center gap-2 sm:gap-3 px-4 sm:px-8 py-3 sm:py-5 bg-[#003087] text-white rounded-xl sm:rounded-[2rem] font-black text-[10px] sm:text-sm uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg sm:shadow-xl shadow-blue-900/20"
+                    >
+                      <Download className="w-4 h-4 sm:w-5 h-5" />
+                      Gerar Fechamento (PDF)
+                    </button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                    <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 mb-6">
-                      <TrendingUp className="w-6 h-6" />
-                    </div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Faturamento Total</p>
-                    <p className="text-2xl font-black text-slate-800">{formatCurrency(orders.reduce((sum, o) => sum + o.total, 0))}</p>
-                    <div className="mt-4 flex items-center gap-2 text-emerald-500">
-                      <TrendingUp className="w-3 h-3" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">+12.5% vs ontem</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                    <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-600 mb-6">
-                      <ShoppingBag className="w-6 h-6" />
-                    </div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pedidos Realizados</p>
-                    <p className="text-2xl font-black text-slate-800">{orders.length}</p>
-                    <div className="mt-4 flex items-center gap-2 text-emerald-500">
-                      <TrendingUp className="w-3 h-3" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">+4 novos</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                    <div className="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center text-purple-600 mb-6">
-                      <Users className="w-6 h-6" />
-                    </div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Novos Clientes</p>
-                    <p className="text-2xl font-black text-slate-800">{customers.length}</p>
-                    <div className="mt-4 flex items-center gap-2 text-emerald-500">
-                      <TrendingUp className="w-3 h-3" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">+2 hoje</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                    <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 mb-6">
-                      <UtensilsCrossed className="w-6 h-6" />
-                    </div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Ticket Médio</p>
-                    <p className="text-2xl font-black text-slate-800">
-                      {formatCurrency(orders.length > 0 ? orders.reduce((sum, o) => sum + o.total, 0) / orders.length : 0)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-[3rem] p-12 flex flex-col items-center justify-center text-slate-400 space-y-6 min-h-[400px]">
-                  <BarChart3 className="w-20 h-20 opacity-10" />
-                  <div className="text-center space-y-2">
-                    <p className="font-black uppercase tracking-widest text-sm text-slate-600">Gráficos de Desempenho</p>
-                    <p className="text-xs font-medium max-w-xs leading-relaxed">Os gráficos de faturamento por hora e produtos mais vendidos serão exibidos aqui conforme os dados forem acumulados.</p>
-                  </div>
-                </div>
+                <Dashboard orders={orders} customers={customers} />
               </div>
             )}
             {activeTab === 'menu' && (
@@ -2039,7 +2298,7 @@ export default function App() {
                     <Sparkles className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="font-black text-sm tracking-tight">Assistente LUXE</h3>
+                    <h3 className="font-black text-sm tracking-tight">Assistente Anota Fácil</h3>
                     <p className="text-[10px] text-white/60 font-bold uppercase tracking-widest">Inteligência Artificial</p>
                   </div>
                 </div>
@@ -2339,7 +2598,62 @@ export default function App() {
           onCloseAllAccounts={handleCloseAllAccounts}
           onPrintReceipt={handlePrintReceipt}
           onConfirmOrder={handleConfirmOrder}
+          onMergeTable={(sourceId) => {
+            setSourceTableId(sourceId);
+            setIsMergingTable(true);
+          }}
         />
+      )}
+
+      {isMergingTable && sourceTableId && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-2xl"
+          >
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div>
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Juntar Mesas</h2>
+                <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Selecione a mesa de destino</p>
+              </div>
+              <button onClick={() => setIsMergingTable(false)} className="p-3 hover:bg-slate-200 rounded-2xl text-slate-400 transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-8 max-h-[60vh] overflow-y-auto">
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+                {tables.filter(t => t.id !== sourceTableId).map(table => (
+                  <button
+                    key={table.id}
+                    onClick={() => handleMergeTable(table.id)}
+                    className={cn(
+                      "aspect-square rounded-3xl flex flex-col items-center justify-center gap-2 transition-all border-4",
+                      table.status === 'occupied' 
+                        ? "bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100" 
+                        : "bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100"
+                    )}
+                  >
+                    <span className="text-2xl font-black">{table.number}</span>
+                    <span className="text-[8px] font-black uppercase tracking-widest">
+                      {table.status === 'occupied' ? 'Ocupada' : 'Livre'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button 
+                onClick={() => setIsMergingTable(false)}
+                className="px-8 py-4 bg-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-300 transition-all"
+              >
+                Cancelar
+              </button>
+            </div>
+          </motion.div>
+        </div>
       )}
 
       {qrCodeTable && (
@@ -2542,7 +2856,6 @@ export default function App() {
                 <h4 className="text-xs font-black uppercase tracking-widest text-slate-400">Clientes Cadastrados</h4>
                 <button 
                   onClick={() => {
-                    setIsOpeningTable(false);
                     setIsAddingCustomer(true);
                   }}
                   className="text-blue-600 font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:underline"

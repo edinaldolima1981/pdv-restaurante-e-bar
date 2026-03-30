@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plus, Trash2, CreditCard, Receipt as ReceiptIcon, Users, UserPlus, Printer, CheckCircle2 } from 'lucide-react';
+import { X, Plus, Trash2, CreditCard, Receipt as ReceiptIcon, Users, UserPlus, Printer, CheckCircle2, Merge } from 'lucide-react';
 import { Table, Customer, OrderItem } from '../types';
 import { formatCurrency, cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -18,6 +18,7 @@ interface TableDetailsProps {
   onCloseAllAccounts?: (tableId: string) => void;
   onPrintReceipt?: (items: OrderItem[], customer: Customer | null, guestName?: string) => void;
   onConfirmOrder?: (tableId: string, accountId: string, itemIds: string[]) => void;
+  onMergeTable?: (sourceTableId: string) => void;
 }
 
 export function TableDetails({ 
@@ -33,11 +34,18 @@ export function TableDetails({
   onAddAccount,
   onCloseAllAccounts,
   onPrintReceipt,
-  onConfirmOrder
+  onConfirmOrder,
+  onMergeTable
 }: TableDetailsProps) {
   const [splitCount, setSplitCount] = useState(1);
   const [isSplitting, setIsSplitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'customers' | 'guests' | 'table'>('customers');
+
+  // Reset split state when switching tabs
+  React.useEffect(() => {
+    setIsSplitting(false);
+    setSplitCount(1);
+  }, [activeTab]);
 
   const registeredAccounts = table.accounts.filter(acc => acc.customerId !== 'avulso');
   const guestAccounts = table.accounts.filter(acc => acc.customerId === 'avulso');
@@ -427,6 +435,69 @@ export function TableDetails({
 
         {activeTab === 'table' && (
           <div className="p-4 sm:p-8 bg-slate-50 border-t border-slate-100 space-y-3 sm:space-y-4">
+            <div className="grid grid-cols-3 gap-3 sm:gap-4">
+              <button 
+                onClick={() => setIsSplitting(!isSplitting)}
+                className="flex items-center justify-center gap-2 sm:gap-3 py-3 sm:py-4 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs uppercase tracking-widest transition-all shadow-sm"
+              >
+                <Users className="w-3.5 h-3.5 sm:w-4 h-4" />
+                Dividir
+              </button>
+              <button 
+                onClick={() => onMergeTable?.(table.id)}
+                className="flex items-center justify-center gap-2 sm:gap-3 py-3 sm:py-4 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs uppercase tracking-widest transition-all shadow-sm"
+              >
+                <Merge className="w-3.5 h-3.5 sm:w-4 h-4" />
+                Juntar
+              </button>
+              <button 
+                onClick={() => {
+                  const allItems = table.accounts.flatMap(acc => acc.items);
+                  onPrintReceipt?.(allItems, null);
+                }}
+                className="flex items-center justify-center gap-2 sm:gap-3 py-3 sm:py-4 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs uppercase tracking-widest transition-all shadow-sm"
+              >
+                <Printer className="w-3.5 h-3.5 sm:w-4 h-4" />
+                Recibo
+              </button>
+            </div>
+
+            <AnimatePresence>
+              {isSplitting && (
+                <motion.div 
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="bg-emerald-50 border border-emerald-100 p-4 sm:p-6 rounded-2xl sm:rounded-3xl space-y-3 sm:space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] sm:text-xs font-black text-emerald-600 uppercase tracking-widest">Dividir mesa por quantas pessoas?</span>
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <button 
+                          onClick={() => setSplitCount(Math.max(1, splitCount - 1))}
+                          className="w-7 h-7 sm:w-8 sm:h-8 bg-white rounded-lg flex items-center justify-center text-emerald-600 shadow-sm"
+                        >
+                          <Plus className="w-3.5 h-3.5 sm:w-4 h-4 rotate-45" />
+                        </button>
+                        <span className="text-base sm:text-lg font-black text-emerald-900">{splitCount}</span>
+                        <button 
+                          onClick={() => setSplitCount(splitCount + 1)}
+                          className="w-7 h-7 sm:w-8 sm:h-8 bg-white rounded-lg flex items-center justify-center text-emerald-600 shadow-sm"
+                        >
+                          <Plus className="w-3.5 h-3.5 sm:w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="pt-3 sm:pt-4 border-t border-emerald-200/50 flex justify-between items-center">
+                      <span className="text-xs sm:text-sm font-bold text-emerald-800">Valor por pessoa:</span>
+                      <span className="text-lg sm:text-xl font-black text-emerald-600">{formatCurrency(tableTotal / splitCount)}</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <button 
               onClick={() => onCloseAllAccounts?.(table.id)}
               className="w-full py-4 sm:py-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl sm:rounded-[1.5rem] font-black text-[10px] sm:text-sm uppercase tracking-[0.1em] sm:tracking-[0.2em] transition-all shadow-xl shadow-emerald-900/20 flex flex-col items-center justify-center"
@@ -436,17 +507,6 @@ export function TableDetails({
                 Pagar Tudo
               </div>
               <span className="text-[8px] sm:text-[10px] opacity-80 mt-0.5 sm:mt-1">Total: {formatCurrency(tableTotal)}</span>
-            </button>
-            
-            <button 
-              onClick={() => {
-                const allItems = table.accounts.flatMap(acc => acc.items);
-                onPrintReceipt?.(allItems, null);
-              }}
-              className="w-full py-3 sm:py-4 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl sm:rounded-2xl font-black text-[8px] sm:text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-            >
-              <Printer className="w-3.5 h-3.5 sm:w-4 h-4" />
-              Recibo Mesa Completa
             </button>
           </div>
         )}
