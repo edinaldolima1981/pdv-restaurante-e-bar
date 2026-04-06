@@ -14,7 +14,6 @@ cd pdv-restaurante
 # 2. Criar estrutura de diretórios
 echo "📁 Criando estrutura de diretórios..."
 mkdir -p backend
-mkdir -p .env
 
 # 3. Copiar arquivos de configuração
 echo "⚙️  Copiando arquivos de configuração..."
