@@ -1,0 +1,1640 @@
+import { useState, useEffect, useCallback, memo, useRef  } from 'react';
+
+// ══════════════════════════════════════
+// API HELPER - Conexão com Backend
+// ══════════════════════════════════════
+const API_URL = '/api';
+let authToken = null;
+
+const api = async (path, options = {}) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  try {
+    const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+    if (res.status === 401) { authToken = null; return null; }
+    return await res.json();
+  } catch (e) { console.error('API Error:', e); return null; }
+};
+
+const apiGet = (path) => api(path);
+const apiPost = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body) });
+const apiPut = (path, body) => api(path, { method: 'PUT', body: JSON.stringify(body) });
+const apiDel = (path) => api(path, { method: 'DELETE' });
+
+const menuInicial = {
+  Pratos: [
+    { id:1, name:"Feijoada", price:29.90, img:"🍛" },
+    { id:2, name:"Strogonoff", price:32.00, img:"🍲" },
+    { id:3, name:"Salada", price:18.00, img:"🥗" },
+    { id:4, name:"Picanha", price:45.00, img:"🥩" },
+    { id:5, name:"Frango Grelhado", price:28.00, img:"🍗" },
+    { id:6, name:"Parmegiana", price:35.00, img:"🧀" },
+  ],
+  Bebidas: [
+    { id:7, name:"Cerveja", price:8.00, img:"🍺" },
+    { id:8, name:"Caipirinha", price:15.00, img:"🍹" },
+    { id:9, name:"Refrigerante", price:6.00, img:"🥤" },
+    { id:10, name:"Suco Natural", price:10.00, img:"🧃" },
+    { id:11, name:"Água", price:4.00, img:"💧" },
+    { id:12, name:"Vinho Tinto", price:25.00, img:"🍷" },
+  ],
+  Petiscos: [
+    { id:13, name:"Batata Frita", price:22.00, img:"🍟" },
+    { id:14, name:"Bolinho Bacalhau", price:28.00, img:"🧆" },
+    { id:15, name:"Coxinha", price:8.00, img:"🥟" },
+    { id:16, name:"Pastel", price:10.00, img:"🥮" },
+    { id:17, name:"Torresmo", price:18.00, img:"🥓" },
+    { id:18, name:"Isca de Peixe", price:30.00, img:"🐟" },
+  ],
+};
+
+const emojis = {
+  Pratos:["🍛","🍲","🥗","🥩","🍗","🧀","🍝","🥘","🍖","🌮","🥙","🍱"],
+  Bebidas:["🍺","🍹","🥤","🧃","💧","🍷","☕","🫖","🥛","🧉","🍸","🫗"],
+  Petiscos:["🍟","🧆","🥟","🥮","🥓","🐟","🧇","🥨","🌭","🧈","🥜","🫔"],
+};
+
+const staff = [
+  { id:1, nome:"Admin",   pin:"0000", cargo:"gerente",  img:"👔" },
+  { id:2, nome:"João",    pin:"1234", cargo:"garcom",   img:"🧑‍🍳" },
+  { id:3, nome:"Ana",     pin:"2345", cargo:"garcom",   img:"👩‍🍳" },
+  { id:4, nome:"Carlos",  pin:"3456", cargo:"garcom",   img:"🧑‍🍳" },
+  { id:5, nome:"Maria",   pin:"4567", cargo:"garcom",   img:"👩‍🍳" },
+  { id:6, nome:"Pedro",   pin:"5678", cargo:"garcom",   img:"🧑‍🍳" },
+  { id:7, nome:"Cozinha", pin:"9999", cargo:"cozinha",  img:"🍳" },
+];
+const garcons = staff.filter(s=>s.cargo==="garcom").map(s=>s.nome);
+const fmt = (v) => `R$ ${v.toFixed(2).replace(".",",")}`;
+const now = () => new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+
+const initMesas = () => {
+  const m = {};
+  for(let i=1;i<=20;i++) m[i] = {status:"livre",garcom:"",cliente:"",pedidos:[],abertoEm:null,enviadoCozinha:[]};
+  m[3] = {status:"ocupada",garcom:"Ana",cliente:"Família Santos",pedidos:[
+    {id:4,name:"Picanha",price:45.00,qty:2,hora:"18:10"},
+    {id:7,name:"Cerveja",price:8.00,qty:4,hora:"18:12"},
+    {id:13,name:"Batata Frita",price:22.00,qty:1,hora:"18:15"},
+  ],abertoEm:"18:10",enviadoCozinha:["18:15 — Picanha ×2, Cerveja ×4, Batata Frita ×1"]};
+  m[7] = {status:"ocupada",garcom:"Carlos",cliente:"Dr. Oliveira",pedidos:[
+    {id:2,name:"Strogonoff",price:32.00,qty:1,hora:"19:00"},
+    {id:12,name:"Vinho Tinto",price:25.00,qty:1,hora:"19:02"},
+  ],abertoEm:"19:00",enviadoCozinha:[]};
+  m[12] = {status:"ocupada",garcom:"João",cliente:"João Silva",pedidos:[
+    {id:1,name:"Feijoada",price:29.90,qty:1,hora:"18:30"},
+    {id:8,name:"Caipirinha",price:15.00,qty:2,hora:"18:32"},
+    {id:9,name:"Refrigerante",price:6.00,qty:1,hora:"18:35"},
+  ],abertoEm:"18:30",enviadoCozinha:["18:35 — Feijoada ×1, Caipirinha ×2, Refrigerante ×1"]};
+  m[5] = {status:"reservada",garcom:"",cliente:"",pedidos:[],abertoEm:null,enviadoCozinha:[]};
+  m[8] = {status:"reservada",garcom:"",cliente:"",pedidos:[],abertoEm:null,enviadoCozinha:[]};
+  return m;
+};
+
+function App() {
+  // ── AUTH ──
+  const [user, setUser] = useState(null);         // logged-in staff member
+  const [loginStaff, setLoginStaff] = useState(null);
+  const [loginPin, setLoginPin] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loginMode, setLoginMode] = useState(null); // null='escolha', 'admin', 'colab'
+  const [loginSenha, setLoginSenha] = useState("");
+
+  const isGerente = user?.cargo === "gerente";
+  const isGarcom = user?.cargo === "garcom";
+  const isCozinha = user?.cargo === "cozinha";
+
+  const handlePinPress = (num) => {
+    if(loginPin.length >= 4) return;
+    const newPin = loginPin + num;
+    setLoginPin(newPin);
+    setLoginError("");
+    if(newPin.length === 4) {
+      apiPost('/auth/colab', { pin: newPin }).then(data => {
+        if(data && data.token) {
+          authToken = data.token;
+          setUser(data.user);
+          setLoginPin("");
+          setLoginMode(null);
+          loadFromAPI(data.user);
+        } else {
+          setLoginError("PIN incorreto!");
+          setTimeout(() => { setLoginPin(""); setLoginError(""); }, 1000);
+        }
+      });
+    }
+  };
+
+  const handleAdminLogin = () => {
+    if(!loginSenha.trim()) return;
+    setLoginError("");
+    apiPost('/auth/admin', { senha: loginSenha }).then(data => {
+      if(data && data.token) {
+        authToken = data.token;
+        setUser(data.user);
+        setLoginSenha("");
+        setLoginMode(null);
+        loadFromAPI(data.user);
+      } else {
+        setLoginError("Senha incorreta!");
+        setLoginSenha("");
+      }
+    });
+  };
+  const handlePinDelete = () => { setLoginPin(p=>p.slice(0,-1)); setLoginError(""); };
+
+  // ── ALL STATE (must be before any return) ──
+  const [menuData,setMenuData] = useState(menuInicial);
+  const [nextId,setNextId] = useState(100);
+  const [tab,setTab] = useState("Pratos");
+  const [search,setSearch] = useState("");
+  const [mesas,setMesas] = useState(initMesas);
+  const [mesaAtual,setMesaAtual] = useState(12);
+  const [sel,setSel] = useState(null);
+  const [pag,setPag] = useState(null);
+  const [modal,setModal] = useState(null);
+  const [taxaSrv,setTaxaSrv] = useState(true);
+  const [notif,setNotif] = useState(null);
+  const [numP,setNumP] = useState(2);
+  const [hist,setHist] = useState([
+    {id:"#1045",hora:"17:55",mesa:5,total:132.80,pag:"Cartão",cliente:"Maria Souza",garcom:"Ana",
+      itens:[{name:"Picanha",qty:2,price:45},{name:"Vinho Tinto",qty:1,price:25},{name:"Salada",qty:1,price:18}]},
+    {id:"#1044",hora:"17:30",mesa:1,total:67.20,pag:"PIX",cliente:"Pedro Lima",garcom:"Carlos",
+      itens:[{name:"Strogonoff",qty:1,price:32},{name:"Cerveja",qty:3,price:8},{name:"Batata Frita",qty:1,price:22}]},
+    {id:"#1043",hora:"16:45",mesa:12,total:89.50,pag:"Dinheiro",cliente:"Lucia Ferreira",garcom:"João",
+      itens:[{name:"Feijoada",qty:2,price:29.9},{name:"Caipirinha",qty:2,price:15}]},
+    {id:"#1042",hora:"16:10",mesa:9,total:156.00,pag:"Cartão",cliente:"Família Oliveira",garcom:"Maria",
+      itens:[{name:"Parmegiana",qty:2,price:35},{name:"Suco Natural",qty:3,price:10},{name:"Batata Frita",qty:1,price:22},{name:"Refrigerante",qty:2,price:6},{name:"Pastel",qty:2,price:10}]},
+    {id:"#1041",hora:"15:20",mesa:3,total:78.00,pag:"PIX",cliente:"Roberto Santos",garcom:"Ana",
+      itens:[{name:"Frango Grelhado",qty:1,price:28},{name:"Cerveja",qty:4,price:8},{name:"Torresmo",qty:1,price:18}]},
+    {id:"#1040",hora:"14:50",mesa:6,total:210.40,pag:"Cartão",cliente:"Dra. Fernanda",garcom:"Pedro",
+      itens:[{name:"Picanha",qty:3,price:45},{name:"Vinho Tinto",qty:2,price:25},{name:"Bolinho Bacalhau",qty:1,price:28}]},
+    {id:"#1039",hora:"14:00",mesa:2,total:45.90,pag:"Dinheiro",cliente:"Marcos Dias",garcom:"João",
+      itens:[{name:"Feijoada",qty:1,price:29.9},{name:"Refrigerante",qty:1,price:6},{name:"Coxinha",qty:1,price:8}]},
+    {id:"#1038",hora:"13:15",mesa:10,total:112.00,pag:"Vale Refeição",cliente:"Equipe TechCorp",garcom:"Carlos",
+      itens:[{name:"Strogonoff",qty:2,price:32},{name:"Suco Natural",qty:3,price:10},{name:"Água",qty:2,price:4}]},
+    {id:"#1037",hora:"12:30",mesa:4,total:95.80,pag:"PIX",cliente:"Ana Clara",garcom:"Maria",
+      itens:[{name:"Salada",qty:2,price:18},{name:"Frango Grelhado",qty:1,price:28},{name:"Caipirinha",qty:1,price:15},{name:"Isca de Peixe",qty:1,price:30}]},
+    {id:"#1036",hora:"12:00",mesa:7,total:63.90,pag:"Dinheiro",cliente:"José Almeida",garcom:"Ana",
+      itens:[{name:"Feijoada",qty:1,price:29.9},{name:"Cerveja",qty:2,price:8},{name:"Torresmo",qty:1,price:18}]},
+  ]);
+  const [fCliente,setFCliente] = useState("");
+  const [fGarcom,setFGarcom] = useState("João");
+  const [fPhone,setFPhone] = useState("");
+  const [fObs,setFObs] = useState("");
+  const [fNome,setFNome] = useState("");
+  const [fPreco,setFPreco] = useState("");
+  const [fEmoji,setFEmoji] = useState("");
+  const [fFoto,setFFoto] = useState("");
+  const [fEdit,setFEdit] = useState(null);
+  const [reservas,setReservas] = useState([
+    {id:1,nome:"Sr. Silva",mesa:5,hora:"19:00",pessoas:4,tel:"(11) 99887-6655",obs:"Aniversário"},
+    {id:2,nome:"Dra. Santos",mesa:8,hora:"20:00",pessoas:2,tel:"(11) 98765-4321",obs:""},
+    {id:3,nome:"Família Costa",mesa:15,hora:"20:30",pessoas:6,tel:"(11) 91234-5678",obs:"Cadeirão p/ bebê"},
+  ]);
+  const [rNome,setRNome] = useState("");
+  const [rMesa,setRMesa] = useState("");
+  const [rHora,setRHora] = useState("");
+  const [rPessoas,setRPessoas] = useState("2");
+  const [rTel,setRTel] = useState("");
+  const [rObs,setRObs] = useState("");
+  const [clienteDetalhe,setClienteDetalhe] = useState(null);
+  const [pixKey,setPixKey] = useState("");
+  const [pixNome,setPixNome] = useState("");
+  const [pixCidade,setPixCidade] = useState("");
+
+  // ── LOAD DATA FROM API ──
+  const loadFromAPI = async (loggedUser) => {
+    // Cardápio
+    const cardapioData = await apiGet('/cardapio');
+    if (cardapioData) {
+      const grouped = { Pratos: [], Bebidas: [], Petiscos: [] };
+      cardapioData.forEach(item => {
+        const cat = item.categoria || 'Pratos';
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push({ id: item.id, name: item.nome, price: parseFloat(item.preco), img: item.emoji, foto: item.foto });
+      });
+      setMenuData(grouped);
+    }
+
+    // Mesas
+    const mesasData = await apiGet('/mesas');
+    if (mesasData) {
+      const m = {};
+      mesasData.forEach(mesa => {
+        m[mesa.numero] = {
+          status: mesa.conta_id ? 'ocupada' : mesa.status,
+          garcom: mesa.garcom_nome || '',
+          cliente: mesa.cliente || '',
+          pedidos: [],
+          abertoEm: mesa.aberta_em ? new Date(mesa.aberta_em).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) : null,
+          enviadoCozinha: [],
+          conta_id: mesa.conta_id || null,
+        };
+        // Carregar pedidos da conta aberta
+        if (mesa.conta_id) {
+          apiGet(`/contas/${mesa.conta_id}/pedidos`).then(peds => {
+            if (peds && peds.length) {
+              setMesas(prev => ({
+                ...prev,
+                [mesa.numero]: {
+                  ...prev[mesa.numero],
+                  pedidos: peds.map(p => ({
+                    id: p.cardapio_id, name: p.nome_item, price: parseFloat(p.preco_unit),
+                    qty: p.quantidade, hora: p.hora, pedido_id: p.id
+                  }))
+                }
+              }));
+            }
+          });
+        }
+      });
+      setMesas(m);
+    }
+
+    // Reservas
+    const reservasData = await apiGet('/reservas');
+    if (reservasData) {
+      setReservas(reservasData.map(r => ({
+        id: r.id, nome: r.nome, mesa: r.mesa_numero, hora: r.hora,
+        pessoas: r.pessoas, tel: r.telefone || '', obs: r.observacoes || '',
+        confirmada: r.confirmada, mesa_id: r.mesa_id
+      })));
+    }
+
+    // Histórico
+    const relData = await apiGet('/relatorios/hoje');
+    if (relData && relData.vendas) {
+      setHist(relData.vendas.map(v => ({
+        id: v.codigo, hora: v.hora, mesa: v.mesa_numero, total: parseFloat(v.total),
+        pag: v.forma_pagamento, cliente: v.cliente_nome, garcom: v.garcom_nome,
+        itens: typeof v.itens === 'string' ? JSON.parse(v.itens) : v.itens
+      })));
+    }
+
+    // Config PIX
+    const cfgData = await apiGet('/config');
+    if (cfgData) {
+      if (cfgData.pix_key) setPixKey(cfgData.pix_key);
+      if (cfgData.pix_nome) setPixNome(cfgData.pix_nome);
+      if (cfgData.pix_cidade) setPixCidade(cfgData.pix_cidade);
+    }
+  };
+
+  // ── DERIVED STATE ──
+  const mesa = mesas[mesaAtual];
+  const ped = mesa.pedidos;
+  const sub = ped.reduce((s,p)=>s+p.price*p.qty,0);
+  const tx = taxaSrv ? sub*0.10 : 0;
+  const tot = sub+tx;
+  const aberta = mesa.status==="ocupada";
+  const ocup = Object.values(mesas).filter(m=>m.status==="ocupada").length;
+  const livre = Object.values(mesas).filter(m=>m.status==="livre").length;
+
+  // ── MAIN APP (after login) ──
+
+  // Gera payload PIX BR Code (padrão EMV)
+  const geraPixPayload = (valor) => {
+    const pad = (id,val) => id + String(val.length).padStart(2,"0") + val;
+    const gui = pad("00","br.gov.bcb.pix");
+    const chave = pad("01",pixKey);
+    const mai = pad("26",gui+chave);
+    const mcc = pad("52","0000");
+    const moeda = pad("53","986");
+    const amount = valor > 0 ? pad("54",valor.toFixed(2)) : "";
+    const pais = pad("58","BR");
+    const nome = pad("59",pixNome.substring(0,25));
+    const cidade = pad("60",pixCidade.substring(0,15));
+    const txid = pad("05","***");
+    const addData = pad("62",txid);
+    const base = pad("00","01") + mai + mcc + moeda + amount + pais + nome + cidade + addData + "6304";
+    // CRC16 CCITT
+    let crc = 0xFFFF;
+    for(let i=0;i<base.length;i++){
+      crc ^= base.charCodeAt(i) << 8;
+      for(let j=0;j<8;j++) crc = crc & 0x8000 ? (crc<<1)^0x1021 : crc<<1;
+      crc &= 0xFFFF;
+    }
+    return base + crc.toString(16).toUpperCase().padStart(4,"0");
+  };
+
+  // Gera QR Code como data URL
+  const geraQR = (text, size) => {
+    try {
+      const qr = qrcode(0, "M");
+      qr.addData(text);
+      qr.make();
+      return qr.createDataURL(size || 4, 0);
+    } catch(e) { return null; }
+  };
+
+  const items = menuData[tab].filter(i=>i.name.toLowerCase().includes(search.toLowerCase()));
+
+  const notify = useCallback((msg)=>{setNotif(msg);setTimeout(()=>setNotif(null),2500);},[]);
+  const upMesa = useCallback((id,ch)=>setMesas(p=>({...p,[id]:{...p[id],...ch}})),[]);
+
+  const abrirMesa=async()=>{
+    if(!fCliente.trim())return;
+    const garcomObj = staff.find(s => s.nome === fGarcom);
+    const result = await apiPost(`/mesas/${mesaAtual}/abrir`, { cliente: fCliente.trim(), garcom_id: garcomObj?.id || 2 });
+    upMesa(mesaAtual,{status:"ocupada",garcom:fGarcom,cliente:fCliente.trim(),pedidos:[],abertoEm:now(),enviadoCozinha:[],conta_id:result?.id||null});
+    notify(`✅ Mesa ${mesaAtual} aberta para ${fCliente.trim()}`);
+    setFCliente("");setModal(null);
+  };
+
+  const addItem=(item)=>{
+    if(!aberta){setFCliente("");setFGarcom(isGarcom?user.nome:"João");setModal("abrir");return;}
+    // Update local state immediately (optimistic)
+    setMesas(p=>{const m={...p[mesaAtual]};const e=m.pedidos.find(x=>x.id===item.id);
+      if(e)m.pedidos=m.pedidos.map(x=>x.id===item.id?{...x,qty:x.qty+1}:x);
+      else m.pedidos=[...m.pedidos,{...item,qty:1,hora:now()}];
+      return{...p,[mesaAtual]:m};
+    });
+    // Sync with API
+    if(mesa.conta_id) {
+      apiPost(`/contas/${mesa.conta_id}/pedidos`, { cardapio_id: item.id, nome_item: item.name, preco_unit: item.price, quantidade: 1 });
+    }
+  };
+
+  const inc=()=>{
+    if(sel===null){notify("⚠️ Selecione um item primeiro");return;}
+    const it=ped.find(p=>p.id===sel);
+    setMesas(p=>{const m={...p[mesaAtual]};m.pedidos=m.pedidos.map(x=>x.id===sel?{...x,qty:x.qty+1}:x);return{...p,[mesaAtual]:m};});
+    if(it)notify(`➕ ${it.name} → ${it.qty+1}`);
+  };
+
+  const dec=()=>{
+    if(sel===null){notify("⚠️ Selecione um item primeiro");return;}
+    const it=ped.find(p=>p.id===sel);if(!it)return;
+    setMesas(p=>{const m={...p[mesaAtual]};
+      if(it.qty>1)m.pedidos=m.pedidos.map(x=>x.id===sel?{...x,qty:x.qty-1}:x);
+      else{m.pedidos=m.pedidos.filter(x=>x.id!==sel);setSel(null);}
+      return{...p,[mesaAtual]:m};
+    });
+    notify(it.qty>1?`➖ ${it.name} → ${it.qty-1}`:`🗑️ ${it.name} removido`);
+  };
+
+  const del=()=>{
+    if(sel===null){notify("⚠️ Selecione um item primeiro");return;}
+    const it=ped.find(p=>p.id===sel);
+    if(it && it.pedido_id) apiDel(`/pedidos/${it.pedido_id}`);
+    setMesas(p=>{const m={...p[mesaAtual]};m.pedidos=m.pedidos.filter(x=>x.id!==sel);return{...p,[mesaAtual]:m};});
+    setSel(null);if(it)notify(`🗑️ ${it.name} removido`);
+  };
+
+  const envCoz=()=>{
+    if(!ped.length){notify("⚠️ Nenhum item");return;}
+    const r=`${now()} — ${ped.map(p=>`${p.name} ×${p.qty}`).join(", ")}`;
+    upMesa(mesaAtual,{enviadoCozinha:[...mesa.enviadoCozinha,r]});
+    if(mesa.conta_id) apiPost(`/contas/${mesa.conta_id}/cozinha`, { descricao: r });
+    notify("👨‍🍳 Pedido enviado para a cozinha!");setModal(null);
+  };
+
+  const fechar=async()=>{
+    if(!pag){notify("⚠️ Selecione pagamento!");return;}
+    // API call to close
+    if(mesa.conta_id) {
+      const result = await apiPost(`/contas/${mesa.conta_id}/fechar`, { forma_pagamento: pag });
+      if(result) {
+        setHist(p=>[{id:result.codigo||`#${1046+p.length}`,hora:now(),mesa:mesaAtual,total:tot,pag,cliente:mesa.cliente,garcom:mesa.garcom,
+          itens:ped.map(p=>({name:p.name,qty:p.qty,price:p.price}))},...p]);
+      }
+    } else {
+      setHist(p=>[{id:`#${1046+p.length}`,hora:now(),mesa:mesaAtual,total:tot,pag,cliente:mesa.cliente,garcom:mesa.garcom,
+        itens:ped.map(p=>({name:p.name,qty:p.qty,price:p.price}))},...p]);
+    }
+    upMesa(mesaAtual,{status:"livre",garcom:"",cliente:"",pedidos:[],abertoEm:null,enviadoCozinha:[],conta_id:null});
+    notify(`✅ Mesa ${mesaAtual} fechada! ${fmt(tot)} — ${pag}`);
+    setPag(null);setSel(null);setModal(null);
+  };
+
+  const criarItem=async()=>{
+    if(!fNome.trim()||!fPreco)return;
+    const pr=parseFloat(fPreco.replace(",","."));
+    if(isNaN(pr)||pr<=0){notify("⚠️ Preço inválido");return;}
+    const catMap = { Pratos: 1, Bebidas: 2, Petiscos: 3 };
+    const result = await apiPost('/cardapio', { nome: fNome.trim(), preco: pr, categoria_id: catMap[tab] || 1, emoji: fEmoji || "🍽️", foto: fFoto || null });
+    const newId = result?.id || nextId;
+    setMenuData(p=>({...p,[tab]:[...p[tab],{id:newId,name:fNome.trim(),price:pr,img:fEmoji||"🍽️",foto:fFoto||""}]}));
+    setNextId(p=>p+1);notify(`✅ "${fNome.trim()}" adicionado!`);
+    setFNome("");setFPreco("");setFEmoji("");setFFoto("");setModal(null);
+  };
+
+  const editItem=async()=>{
+    if(!fEdit||!fNome.trim()||!fPreco)return;
+    const pr=parseFloat(fPreco.replace(",","."));
+    if(isNaN(pr)||pr<=0){notify("⚠️ Preço inválido");return;}
+    await apiPut(`/cardapio/${fEdit.id}`, { nome: fNome.trim(), preco: pr, emoji: fEmoji || fEdit.img, foto: fFoto || null });
+    setMenuData(p=>({...p,[tab]:p[tab].map(i=>i.id===fEdit.id?{...i,name:fNome.trim(),price:pr,img:fEmoji||i.img,foto:fFoto||""}:i)}));
+    notify(`✅ "${fNome.trim()}" atualizado!`);setModal(null);
+  };
+
+  const delItem=(id)=>{
+    apiDel(`/cardapio/${id}`);
+    setMenuData(p=>({...p,[tab]:p[tab].filter(i=>i.id!==id)}));
+    notify("🗑️ Item removido");setModal(null);
+  };
+
+  // Handle photo file input
+  const handleFoto = (e) => {
+    const file = e.target.files?.[0];
+    if(!file) return;
+    if(file.size > 5*1024*1024) { notify("⚠️ Imagem muito grande (máx 5MB)"); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => setFFoto(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  // Photo upload component
+  const FotoUpload = () => (
+    <div style={{marginBottom:14}}>
+      <label className="modal-label">📷 Foto do Produto:</label>
+      <label className={`foto-upload-area ${fFoto?"has-foto":""}`}>
+        <input type="file" accept="image/*" onChange={handleFoto} style={{display:"none"}}/>
+        {fFoto ? (
+          <img src={fFoto} className="foto-preview" alt="preview"/>
+        ) : (
+          <div className="foto-placeholder">📷</div>
+        )}
+        <div className="foto-upload-text">
+          {fFoto ? <><strong>Foto adicionada ✓</strong>Clique para trocar a foto</> : <><strong>Clique para adicionar foto</strong>JPG, PNG — máx 5MB</>}
+        </div>
+      </label>
+      {fFoto && (
+        <button className="foto-remove-btn" onClick={(e)=>{e.preventDefault();setFFoto("");}}>✕ Remover foto</button>
+      )}
+    </div>
+  );
+
+  // Reserva helpers
+  const addReserva = async () => {
+    if(!rNome.trim()||!rMesa||!rHora) { notify("⚠️ Preencha nome, mesa e horário"); return; }
+    const mesaObj = Object.entries(mesas).find(([num]) => +num === +rMesa);
+    const mesaId = +rMesa;
+    const result = await apiPost('/reservas', { nome: rNome.trim(), mesa_id: mesaId, hora: rHora, pessoas: +rPessoas || 2, telefone: rTel, observacoes: rObs });
+    setReservas(p=>[...p,{id:result?.id||Date.now(),nome:rNome.trim(),mesa:+rMesa,hora:rHora,pessoas:+rPessoas||2,tel:rTel,obs:rObs,confirmada:false}]);
+    upMesa(+rMesa, {status:"reservada"});
+    notify(`✅ Reserva de ${rNome.trim()} cadastrada!`);
+    setRNome("");setRMesa("");setRHora("");setRPessoas("2");setRTel("");setRObs("");
+  };
+  const delReserva = (id) => { apiDel(`/reservas/${id}`); setReservas(p=>p.filter(r=>r.id!==id)); notify("🗑️ Reserva removida"); };
+
+  const Timer = memo(()=>{
+    const [el,setEl]=useState("");
+    useEffect(()=>{
+      if(!mesa.abertoEm)return;
+      const tick=()=>{const[h,m]=mesa.abertoEm.split(":").map(Number);const a=new Date();a.setHours(h,m,0);
+        const d=Math.floor((Date.now()-a.getTime())/60000);
+        if(d<0){setEl("agora");return;}
+        setEl(Math.floor(d/60)>0?`${Math.floor(d/60)}h ${d%60}min`:`${d%60}min`);
+      };tick();const iv=setInterval(tick,30000);return()=>clearInterval(iv);
+    },[]);
+    return aberta?<span className="mesa-timer">⏱ {el}</span>:null;
+  });
+
+  return !user ? (
+    <div className="login-screen">
+      <div className="login-box">
+        <div className="login-logo">
+          <span className="login-logo-icon">🍽️</span>
+          <div className="login-logo-text">PDV Anota Fácil</div>
+          <div className="login-logo-sub">{!loginMode ? "Selecione como deseja entrar" : loginMode==="admin" ? "Digite a senha do estabelecimento" : "Digite seu PIN de colaborador"}</div>
+        </div>
+
+        {!loginMode ? (
+          <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:8}}>
+            <button className="login-staff-btn" style={{display:"flex",alignItems:"center",gap:14,padding:"18px 24px",width:"100%"}} onClick={()=>{setLoginMode("admin");setLoginSenha("");setLoginError("");}}>
+              <span style={{fontSize:36}}>👔</span>
+              <div style={{textAlign:"left"}}>
+                <div className="login-staff-name">Administrador</div>
+                <div className="login-staff-cargo">Acesso total ao sistema</div>
+              </div>
+            </button>
+            <button className="login-staff-btn" style={{display:"flex",alignItems:"center",gap:14,padding:"18px 24px",width:"100%"}} onClick={()=>{setLoginMode("colab");setLoginPin("");setLoginError("");}}>
+              <span style={{fontSize:36}}>🧑‍🍳</span>
+              <div style={{textAlign:"left"}}>
+                <div className="login-staff-name">Colaborador</div>
+                <div className="login-staff-cargo">Garçom, Cozinha e outros</div>
+              </div>
+            </button>
+          </div>
+        ) : loginMode==="admin" ? (<>
+          <div style={{textAlign:"center",marginBottom:16}}>
+            <span style={{fontSize:42}}>👔</span>
+            <div style={{fontSize:18,fontWeight:700,color:"#fff",marginTop:4}}>Administrador</div>
+          </div>
+          <div style={{padding:"0 10px"}}>
+            <input type="password" className="modal-input" placeholder="Digite a senha do estabelecimento"
+              value={loginSenha} onChange={e=>setLoginSenha(e.target.value)}
+              onKeyDown={e=>{if(e.key==="Enter")handleAdminLogin();}}
+              style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"#fff",fontSize:16,padding:"14px 16px",borderRadius:12,width:"100%",boxSizing:"border-box",textAlign:"center"}}
+              autoFocus
+            />
+            <button onClick={handleAdminLogin}
+              style={{width:"100%",padding:"14px",marginTop:12,background:"linear-gradient(135deg,#f97316,#ea580c)",color:"#fff",border:"none",borderRadius:12,fontSize:16,fontWeight:700,cursor:"pointer"}}>
+              Entrar
+            </button>
+          </div>
+          {loginError && <div className="login-error">{"⚠️ "}{loginError}</div>}
+          <button style={{marginTop:16,background:"none",border:"none",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:13}} onClick={()=>{setLoginMode(null);setLoginError("");}}>{"← Voltar"}</button>
+        </>) : (<>
+          <div style={{textAlign:"center",marginBottom:16}}>
+            <span style={{fontSize:42}}>🧑‍🍳</span>
+            <div style={{fontSize:18,fontWeight:700,color:"#fff",marginTop:4}}>Colaborador</div>
+          </div>
+          <div className="login-pin-wrap">
+            <div className="login-pin-dots">
+              {[0,1,2,3].map(i=>(
+                <div key={i} className={`login-pin-dot ${loginError?"error":loginPin.length>i?"filled":""}`}/>
+              ))}
+            </div>
+            <div className="login-numpad">
+              {[1,2,3,4,5,6,7,8,9].map(n=>(
+                <button key={n} className="login-num-btn" onClick={()=>handlePinPress(String(n))}>{n}</button>
+              ))}
+              <button className="login-num-btn special" onClick={()=>{setLoginMode(null);setLoginPin("");}}>{"← Voltar"}</button>
+              <button className="login-num-btn" onClick={()=>handlePinPress("0")}>0</button>
+              <button className="login-num-btn special" onClick={handlePinDelete}>{"⌫"}</button>
+            </div>
+          </div>
+          {loginError && <div className="login-error">{"⚠️ "}{loginError}</div>}
+        </>)}
+      </div>
+    </div>
+  ) : (
+    <div className="app">
+      {notif&&<div className="notif">{notif}</div>}
+
+      {/* HEADER */}
+      <div className="header">
+        <div className="logo">
+          <span className="logo-icon">🍺</span>
+          <span className="logo-text">PDV <span className="logo-sub">de Restaurante</span></span>
+        </div>
+        <div className="header-stats">
+          <div className="header-stat"><div className="header-dot" style={{background:"var(--green)"}}/>  {livre} livres</div>
+          <div className="header-stat"><div className="header-dot" style={{background:"var(--red)"}}/> {ocup} ocupadas</div>
+          {isGarcom && <div className="header-stat" style={{color:"var(--accent)"}}>📋 Minhas: {Object.values(mesas).filter(m=>m.garcom===user.nome).length}</div>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div className="collab-badge">
+            <span className={`role-dot ${user.cargo}`}/>
+            <span>{user.img} {user.nome}</span>
+            <span style={{opacity:0.6,textTransform:"capitalize"}}>({user.cargo})</span>
+          </div>
+          <div className="header-icons">
+            {isGerente && ["🔔","✉️"].map((ic,i)=><div key={i} className="header-icon">{ic}</div>)}
+            {isGerente && <div className="header-icon" onClick={()=>setModal("config")}>⚙️</div>}
+            <div className="header-icon" onClick={()=>{authToken=null;setUser(null);setLoginMode(null);setMesaAtual(1);setSel(null);setPag(null);}} title="Sair" style={{background:"rgba(239,68,68,0.15)",borderColor:"rgba(239,68,68,0.3)"}}>🚪</div>
+          </div>
+        </div>
+      </div>
+
+      {/* MAIN */}
+      <div className="main">
+
+        {/* LEFT */}
+        <div className="left-panel">
+          <div className="tabs">
+            {["Pratos","Bebidas","Petiscos"].map(t=>(
+              <button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>{setTab(t);setSearch("");}}>{t}</button>
+            ))}
+          </div>
+          <div className="search-row">
+            <div className="search-wrap">
+              <span className="search-icon">🔍</span>
+              <input className="search-input" placeholder="Buscar item..." value={search} onChange={e=>setSearch(e.target.value)}/>
+            </div>
+            {isGerente && <button className="btn-add-item" title={`Novo item em ${tab}`} onClick={()=>{setFNome("");setFPreco("");setFEmoji("");setFFoto("");setFEdit(null);setModal("novoItem");}}>+</button>}
+          </div>
+          <div className="menu-list">
+            {items.map(item=>(
+              <div key={item.id} className="menu-item">
+                <div className="menu-item-img" onClick={()=>addItem(item)}>
+                  {item.foto ? <img src={item.foto} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:7}} alt=""/> : item.img}
+                </div>
+                <div className="menu-item-info" onClick={()=>addItem(item)}>
+                  <div className="menu-item-name">{item.name}</div>
+                  <div className="menu-item-price">{fmt(item.price)}</div>
+                </div>
+                {isGerente && <button className="menu-item-edit" onClick={e=>{e.stopPropagation();setFEdit(item);setFNome(item.name);setFPreco(item.price.toFixed(2).replace(".",","));setFEmoji(item.img);setFFoto(item.foto||"");setModal("editarItem");}}>✏️</button>}
+              </div>
+            ))}
+            {items.length===0&&<div style={{textAlign:"center",color:"var(--text-muted)",padding:"24px",fontSize:"13px"}}>Nenhum item encontrado.</div>}
+          </div>
+          <div className="menu-count">{menuData[tab].length} itens em {tab}</div>
+        </div>
+
+        {/* CENTER */}
+        <div className="center-panel">
+          <div className="mesa-header">
+            <div style={{display:"flex",alignItems:"center"}}>
+              <span className="mesa-title">Mesa {mesaAtual}</span>
+              {aberta&&<><span className="mesa-garcom">— Garçom: {mesa.garcom}</span><Timer/></>}
+            </div>
+            <button style={{background:"none",border:"none",fontSize:"20px",cursor:"pointer",color:"var(--text-dim)"}} onClick={()=>aberta&&setModal("detalhes")}>📊</button>
+          </div>
+
+          {!aberta?(
+            <div className="status-badge livre">
+              <span className="status-dot green"/>
+              <span style={{color:"var(--green)"}}>Mesa {mesaAtual} — LIVRE</span>
+              <button className="btn-abrir-inline" onClick={()=>{setFCliente("");setFGarcom(isGarcom?user.nome:"João");setModal("abrir");}}>+ Abrir Mesa</button>
+            </div>
+          ):(
+            <div className="status-badge ocupada">
+              <span className="status-dot red"/>
+              <span style={{color:"#fca5a5",fontWeight:700}}>OCUPADA</span>
+              <span style={{color:"var(--text-muted)"}}>desde {mesa.abertoEm}</span>
+              <span className="status-info">👤 {mesa.cliente} &nbsp;|&nbsp; 🧑‍🍳 {mesa.garcom}</span>
+            </div>
+          )}
+
+          <div className="order-list">
+            {ped.length===0?(
+              <div className="order-empty">{aberta?"Nenhum item ainda.\nClique no cardápio para adicionar.":"Mesa livre.\nAbra a mesa para começar."}</div>
+            ):ped.map(p=>(
+              <div key={p.id} className={`order-item ${sel===p.id?"selected":""}`} onClick={()=>setSel(sel===p.id?null:p.id)}>
+                <div className="order-item-info">
+                  <div className="order-item-name">▸ {p.name} {p.qty>1?`× ${p.qty}`:""}</div>
+                  <div className="order-item-time">adicionado às {p.hora}</div>
+                </div>
+                <div className="order-item-price">{fmt(p.price*p.qty)}</div>
+                {sel===p.id&&(
+                  <div className="order-item-controls" onClick={e=>e.stopPropagation()}>
+                    <button className="qty-btn minus" onClick={dec}>−</button>
+                    <span className="qty-num">{p.qty}</span>
+                    <button className="qty-btn plus" onClick={inc}>+</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {aberta&&(
+            <div className="action-bar">
+              <button className="action-btn" style={{background:"var(--accent)"}} onClick={inc}>+1 Qtd</button>
+              <button className="action-btn" style={{background:"var(--orange)"}} onClick={dec}>−1 Qtd</button>
+              <button className="action-btn" style={{background:"var(--red)"}} onClick={del}>🗑️ Remover</button>
+              <button className="action-btn" style={{background:"var(--green)"}} onClick={()=>setModal("dividir")}>➗ Dividir</button>
+            </div>
+          )}
+
+          <div className="totals">
+            {isGerente ? (<>
+              <div className="total-row"><span>Subtotal:</span><span>{fmt(sub)}</span></div>
+              <div className="total-row"><span>Taxa Serviço (10%):</span><span>{fmt(tx)}</span></div>
+              <div className="total-row grand"><span>Total:</span><span>{fmt(tot)}</span></div>
+            </>) : (<>
+              <div className="total-row"><span>Itens no pedido:</span><span>{ped.reduce((s,p)=>s+p.qty,0)}</span></div>
+              <div className="total-row grand" style={{fontSize:16,color:"var(--text-dim)"}}><span>Total:</span><span>{fmt(tot)}</span></div>
+            </>)}
+          </div>
+        </div>
+
+        {/* RIGHT */}
+        <div className="right-panel">
+          {isGerente ? (
+            <div className="pay-section">
+              <div className="pay-title">Pagamento</div>
+              <div className="pay-grid">
+                {[{n:"Dinheiro",i:"💵",bg:"#166534"},{n:"Cartão",i:"💳",bg:"#1e40af"},{n:"PIX",i:"⚡",bg:"#0f766e"}].map(m=>(
+                  <button key={m.n} className={`pay-btn ${pag===m.n?"active":""}`} style={{background:m.bg}} onClick={()=>setPag(m.n)}>
+                    <span className="pay-btn-icon">{m.i}</span>{m.n}
+                  </button>
+                ))}
+              </div>
+              <button className={`pay-btn-wide ${pag==="Vale Refeição"?"active":""}`} onClick={()=>setPag("Vale Refeição")}>🎫 Vale Refeição</button>
+            </div>
+          ) : (
+            <div className="pay-section">
+              <div className="pay-title">Seu Painel</div>
+              <div style={{textAlign:"center",padding:"8px 0"}}>
+                <div style={{fontSize:36,marginBottom:4}}>{user.img}</div>
+                <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{user.nome}</div>
+                <div style={{fontSize:11,color:"var(--text-muted)",textTransform:"capitalize"}}>{user.cargo}</div>
+                <div style={{marginTop:8,fontSize:12,color:"var(--accent)"}}>
+                  📋 {Object.values(mesas).filter(m=>m.garcom===user.nome).length} mesa(s) ativa(s)
+                </div>
+              </div>
+            </div>
+          )}
+
+          {aberta?(
+            isGerente ? (
+              <button className="big-btn" style={{background:"linear-gradient(135deg,#dc2626,#991b1b)"}} onClick={()=>{if(!ped.length){notify("⚠️ Nenhum pedido");return;}setModal("fechar");}}>🔒 Fechar Conta</button>
+            ) : (
+              <button className="big-btn" style={{background:"linear-gradient(135deg,#64748b,#475569)",cursor:"not-allowed",opacity:0.6}} onClick={()=>notify("🔒 Apenas o gerente pode fechar contas")}>🔒 Fechar Conta</button>
+            )
+          ):(
+            <button className="big-btn" style={{background:"linear-gradient(135deg,#16a34a,#15803d)"}} onClick={()=>{setFCliente("");setFGarcom(isGarcom?user.nome:"João");setModal("abrir");}}>➕ Abrir Mesa</button>
+          )}
+
+          <button className="big-btn" style={{background:"linear-gradient(135deg,#d97706,#b45309)"}} onClick={()=>{
+            if(!aberta){notify("⚠️ Abra a mesa primeiro");return;}if(!ped.length){notify("⚠️ Adicione itens");return;}setFObs("");setModal("cozinha");
+          }}>👨‍🍳 Pedido Cozinha</button>
+
+          {isGerente && (
+            <div className="pay-section">
+              <div className="pay-title">Comprovante</div>
+              <div className="comprovante-grid">
+                <button className="comprovante-btn" onClick={()=>{setFPhone("");setModal("whatsapp");}}><span className="comprovante-icon">💬</span>WhatsApp</button>
+                <button className="comprovante-btn" onClick={()=>setModal("cupom")}><span className="comprovante-icon">🖨️</span>Imprimir</button>
+              </div>
+            </div>
+          )}
+          {isGarcom && aberta && ped.length > 0 && (
+            <button className="big-btn" style={{background:"linear-gradient(135deg,#7c3aed,#5b21b6)"}} onClick={()=>{
+              notify("📢 Solicitação de conta enviada ao gerente!");
+            }}>📢 Solicitar Fechamento</button>
+          )}
+        </div>
+      </div>
+
+      {/* FOOTER */}
+      <div className="footer">
+        <div className="footer-group">
+          <button className="footer-btn" onClick={()=>setModal("mesas")}>🪑 Mesas</button>
+          <button className="footer-btn" onClick={()=>setModal("reservas")}>📋 Reservas</button>
+          {isGerente && <button className="footer-btn" onClick={()=>setModal("relatorios")}>📊 Relatórios</button>}
+          {isCozinha && <button className="footer-btn" onClick={()=>setModal("painelCozinha")}>🔥 Painel Cozinha</button>}
+        </div>
+        <div className="footer-group">
+          <button className="footer-btn" onClick={()=>{setSel(null);setPag(null);}}>⏪ Voltar</button>
+          {isGerente && <button className="footer-btn" onClick={()=>setModal("config")}>⚙️ Config</button>}
+          {isGerente && <button className="footer-btn" onClick={()=>setModal("gerenciarStaff")}>👥 Equipe</button>}
+          <button className="footer-btn" onClick={()=>{authToken=null;setUser(null);setLoginMode(null);}} style={{borderColor:"rgba(239,68,68,0.3)",color:"#fca5a5"}}>🚪 Sair</button>
+        </div>
+      </div>
+
+      {/* MODAIS */}
+      {modal&&(
+        <div className="overlay" onClick={()=>setModal(null)}>
+          <div className={`modal ${modal==="relatorios"||modal==="clienteDetalhe"?"fullscreen":""}`} onClick={e=>e.stopPropagation()}>
+
+            {modal==="abrir"&&<>
+              <div className="modal-title">🪑 Abrir Mesa {mesaAtual}</div>
+              <div style={{marginBottom:14}}>
+                <label className="modal-label">Nome do Cliente:</label>
+                <input className="modal-input" value={fCliente} onChange={e=>setFCliente(e.target.value)} placeholder="Ex: João Silva" autoFocus/>
+              </div>
+              {isGarcom ? (
+                <div style={{marginBottom:14,padding:12,background:"#eff6ff",borderRadius:10,border:"1px solid #bfdbfe",fontSize:13}}>
+                  <strong>🧑‍🍳 Garçom:</strong> {user.nome} <span style={{color:"#94a3b8"}}>(você)</span>
+                </div>
+              ) : (
+                <div style={{marginBottom:14}}>
+                  <label className="modal-label">Garçom:</label>
+                  <div className="garcom-chips">
+                    {garcons.map(g=><button key={g} className={`garcom-chip ${fGarcom===g?"active":""}`} onClick={()=>setFGarcom(g)}>{g}</button>)}
+                  </div>
+                </div>
+              )}
+              <div className="hint-box">💡 A mesa fica aberta até o cliente pedir a conta. Adicione itens a qualquer momento.</div>
+              <div className="modal-btns">
+                <button className="modal-btn secondary" onClick={()=>setModal(null)}>Cancelar</button>
+                <button className="modal-btn primary" disabled={!fCliente.trim()} onClick={abrirMesa}>✅ Abrir Mesa</button>
+              </div>
+            </>}
+
+            {modal==="novoItem"&&<>
+              <div className="modal-title">➕ Novo Item — {tab}</div>
+              <div style={{marginBottom:14}}>
+                <label className="modal-label">Nome:</label>
+                <input className="modal-input" value={fNome} onChange={e=>setFNome(e.target.value)} placeholder="Ex: Lasanha" autoFocus/>
+              </div>
+              <div style={{marginBottom:14}}>
+                <label className="modal-label">Preço (R$):</label>
+                <input className="modal-input" value={fPreco} onChange={e=>setFPreco(e.target.value)} placeholder="Ex: 25,90"/>
+              </div>
+              <FotoUpload/>
+              <div style={{marginBottom:14}}>
+                <label className="modal-label">Ícone (usado se não tiver foto):</label>
+                <div className="emoji-grid">
+                  {emojis[tab].map(e=><button key={e} className={`emoji-btn ${fEmoji===e?"active":""}`} onClick={()=>setFEmoji(e)}>{e}</button>)}
+                </div>
+              </div>
+              {fNome.trim()&&fPreco&&(
+                <div className="preview-box">
+                  {fFoto ? <img src={fFoto} style={{width:48,height:48,borderRadius:8,objectFit:"cover"}} alt=""/> : <span className="preview-emoji">{fEmoji||"🍽️"}</span>}
+                  <div><div style={{fontWeight:700}}>{fNome}</div><div style={{color:"var(--menu-price)"}}>R$ {fPreco}</div></div>
+                  <span className="preview-label">Prévia</span>
+                </div>
+              )}
+              <div className="modal-btns">
+                <button className="modal-btn secondary" onClick={()=>setModal(null)}>Cancelar</button>
+                <button className="modal-btn primary" disabled={!fNome.trim()||!fPreco} onClick={criarItem}>✅ Criar Item</button>
+              </div>
+            </>}
+
+            {modal==="editarItem"&&fEdit&&<>
+              <div className="modal-title">✏️ Editar — {fEdit.name}</div>
+              <div style={{marginBottom:14}}>
+                <label className="modal-label">Nome:</label>
+                <input className="modal-input" value={fNome} onChange={e=>setFNome(e.target.value)}/>
+              </div>
+              <div style={{marginBottom:14}}>
+                <label className="modal-label">Preço (R$):</label>
+                <input className="modal-input" value={fPreco} onChange={e=>setFPreco(e.target.value)}/>
+              </div>
+              <FotoUpload/>
+              <div style={{marginBottom:14}}>
+                <label className="modal-label">Ícone (usado se não tiver foto):</label>
+                <div className="emoji-grid">
+                  {emojis[tab].map(e=><button key={e} className={`emoji-btn ${fEmoji===e?"active":""}`} onClick={()=>setFEmoji(e)}>{e}</button>)}
+                </div>
+              </div>
+              <div className="modal-btns">
+                <button className="modal-btn danger" style={{flex:"0 0 auto",padding:"13px 20px"}} onClick={()=>delItem(fEdit.id)}>🗑️</button>
+                <button className="modal-btn secondary" onClick={()=>setModal(null)}>Cancelar</button>
+                <button className="modal-btn blue" onClick={editItem}>💾 Salvar</button>
+              </div>
+            </>}
+
+            {modal==="fechar"&&<>
+              <div className="modal-title">🔒 Fechar Conta</div>
+              <div className="warning-box" style={{marginBottom:14}}>⚠️ Todos os itens serão cobrados e a mesa será liberada.</div>
+              <div style={{textAlign:"center",marginBottom:10,fontSize:13,color:"#666"}}>
+                Mesa {mesaAtual} — {mesa.cliente} — Garçom: {mesa.garcom}
+              </div>
+              <div className="fechar-items">
+                {ped.map((p,i)=><div key={i} className="fechar-line"><span>{p.qty}× {p.name}</span><span style={{fontWeight:700}}>{fmt(p.price*p.qty)}</span></div>)}
+              </div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:13,color:"#666"}}>Subtotal: {fmt(sub)} | Taxa: {fmt(tx)}</div>
+                <div className="fechar-total-big">{fmt(tot)}</div>
+                <div style={{fontSize:13}}>Pagamento: <strong style={{color:pag?"var(--menu-price)":"var(--red)"}}>{pag||"⚠️ Não selecionado"}</strong></div>
+              </div>
+              {/* PIX QR Code quando pagamento é PIX */}
+              {pag==="PIX"&&(
+                <div style={{
+                  marginTop:16,padding:16,background:"#f0fdf4",borderRadius:12,
+                  border:"1px solid #bbf7d0",textAlign:"center"
+                }}>
+                  <div style={{fontSize:14,fontWeight:700,color:"#166534",marginBottom:8}}>⚡ QR Code PIX para pagamento</div>
+                  {geraQR(geraPixPayload(tot))&&(
+                    <img src={geraQR(geraPixPayload(tot),5)} alt="QR Code PIX"
+                      style={{width:180,height:180,margin:"0 auto",display:"block",borderRadius:10,border:"3px solid #22c55e",padding:6,background:"#fff"}}/>
+                  )}
+                  <div style={{fontSize:12,color:"#444",marginTop:10,wordBreak:"break-all"}}>
+                    <strong>Chave:</strong> {pixKey}
+                  </div>
+                  <div style={{fontSize:11,color:"#666",marginTop:2}}>{pixNome}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#166534",marginTop:6}}>{fmt(tot)}</div>
+                  <div style={{fontSize:10,color:"#888",marginTop:6}}>Aponte a câmera do celular ou copie a chave</div>
+                </div>
+              )}
+              <div className="modal-btns">
+                <button className="modal-btn secondary" onClick={()=>setModal(null)}>Cancelar</button>
+                <button className="modal-btn danger" disabled={!pag} onClick={fechar}>🔒 Fechar e Liberar</button>
+              </div>
+            </>}
+
+            {modal==="mesas"&&<>
+              <div className="modal-title">🪑 Gerenciar Mesas</div>
+              <div className="mesa-grid">
+                {Object.entries(mesas).map(([id,m])=>{const n=+id;return(
+                  <div key={id} className={`mesa-cell ${m.status} ${n===mesaAtual?"current":""}`}
+                    onClick={()=>{setMesaAtual(n);setSel(null);setPag(null);setModal(null);}}>
+                    <div className="mesa-cell-icon">🪑</div>
+                    <div>Mesa {id}</div>
+                    {m.status==="ocupada"&&<div className="mesa-cell-info">👤 {m.cliente?.split(" ")[0]}<br/>{m.pedidos.length} itens</div>}
+                    {m.status==="livre"&&<div className="mesa-cell-info">livre</div>}
+                    {m.status==="reservada"&&<div className="mesa-cell-info">reservada</div>}
+                  </div>
+                );})}
+              </div>
+              <div className="mesa-legend"><span>🟢 Livre ({livre})</span><span>🔴 Ocupada ({ocup})</span><span>🟡 Reservada</span></div>
+              <div className="modal-btns"><button className="modal-btn secondary" onClick={()=>setModal(null)}>Fechar</button></div>
+            </>}
+
+            {modal==="detalhes"&&<>
+              <div className="modal-title">📊 Mesa {mesaAtual}</div>
+              <div style={{fontSize:13,color:"#666",marginBottom:10}}><strong>Cliente:</strong> {mesa.cliente} | <strong>Garçom:</strong> {mesa.garcom} | <strong>Desde:</strong> {mesa.abertoEm}</div>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:6}}>Envios à cozinha:</div>
+              {mesa.enviadoCozinha.length===0?<div style={{color:"#999",fontSize:12}}>Nenhum envio.</div>:
+                mesa.enviadoCozinha.map((e,i)=><div key={i} style={{padding:8,background:"#f8fafc",borderRadius:8,marginBottom:4,fontSize:12,border:"1px solid #e2e8f0"}}>📋 {e}</div>)}
+              <div className="modal-btns"><button className="modal-btn secondary" onClick={()=>setModal(null)}>Fechar</button></div>
+            </>}
+
+            {modal==="cozinha"&&<>
+              <div className="modal-title">👨‍🍳 Enviar para Cozinha</div>
+              <div style={{fontSize:13,color:"#666",marginBottom:10}}>Mesa {mesaAtual} — {mesa.cliente}</div>
+              {ped.map((p,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:8,background:"#f8fafc",borderRadius:8,marginBottom:4,fontWeight:700,fontSize:13,border:"1px solid #e2e8f0"}}><span>{p.qty}× {p.name}</span></div>)}
+              <textarea className="modal-input" placeholder="Observações..." value={fObs} onChange={e=>setFObs(e.target.value)} style={{marginTop:10,minHeight:60,resize:"vertical"}}/>
+              <div className="modal-btns">
+                <button className="modal-btn secondary" onClick={()=>setModal(null)}>Cancelar</button>
+                <button className="modal-btn orange" onClick={envCoz}>🔥 Enviar</button>
+              </div>
+            </>}
+
+            {modal==="dividir"&&<>
+              <div className="modal-title">➗ Dividir Conta</div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:14,color:"#666",marginBottom:12}}>Total: <strong>{fmt(tot)}</strong></div>
+                <div className="dividir-controls">
+                  <button className="dividir-btn" onClick={()=>setNumP(Math.max(2,numP-1))}>−</button>
+                  <span className="dividir-num">{numP}</span>
+                  <button className="dividir-btn" onClick={()=>setNumP(numP+1)}>+</button>
+                </div>
+                <div style={{fontSize:12,color:"#666"}}>pessoas</div>
+                <div className="dividir-result">{fmt(tot/numP)} / pessoa</div>
+              </div>
+              <div className="modal-btns"><button className="modal-btn secondary" onClick={()=>setModal(null)}>Fechar</button></div>
+            </>}
+
+            {modal==="whatsapp"&&<>
+              <div style={{textAlign:"center",marginBottom:16}}><div style={{fontSize:52,marginBottom:8}}>💬</div><div style={{fontSize:18,fontWeight:700}}>Enviar via WhatsApp?</div></div>
+              <input className="modal-input" placeholder="(99) 99999-9999" value={fPhone} onChange={e=>setFPhone(e.target.value)} style={{textAlign:"center"}}/>
+              <div className="modal-btns">
+                <button className="modal-btn secondary" onClick={()=>setModal(null)}>Cancelar</button>
+                <button className="modal-btn primary" onClick={()=>{setModal(null);notify("📱 Comprovante enviado!");}}>Enviar</button>
+              </div>
+            </>}
+
+            {modal==="cupom"&&<>
+              <div className="receipt">
+                <div className="receipt-header">🍺 PDV de Restaurante</div>
+                <div style={{textAlign:"center",fontSize:11,color:"#888",marginBottom:6}}>{pixNome}</div>
+                <div className="receipt-divider">Mesa {mesaAtual} — {mesa.cliente||"—"}<br/>Garçom: {mesa.garcom||"—"}<br/>{new Date().toLocaleString("pt-BR")}</div>
+                {ped.map((p,i)=><div key={i} className="receipt-line"><span>{p.qty}× {p.name}</span><span>{fmt(p.price*p.qty)}</span></div>)}
+                <div className="receipt-line receipt-total"><span>Subtotal:</span><span>{fmt(sub)}</span></div>
+                <div className="receipt-line"><span>Taxa:</span><span>{fmt(tx)}</span></div>
+                <div className="receipt-line receipt-total"><span>TOTAL:</span><span>{fmt(tot)}</span></div>
+                {/* PIX QR Code */}
+                <div style={{borderTop:"1px dashed #ccc",marginTop:12,paddingTop:12,textAlign:"center"}}>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>⚡ Pague via PIX</div>
+                  {geraQR(geraPixPayload(tot))&&(
+                    <img src={geraQR(geraPixPayload(tot),4)} alt="QR Code PIX" style={{width:150,height:150,margin:"8px auto",display:"block",borderRadius:8,border:"2px solid #eee",padding:4,background:"#fff"}}/>
+                  )}
+                  <div style={{fontSize:10,color:"#666",marginTop:6,wordBreak:"break-all"}}>
+                    <strong>Chave PIX:</strong> {pixKey}
+                  </div>
+                  <div style={{fontSize:10,color:"#888",marginTop:2}}>{pixNome} — {pixCidade}</div>
+                  <div style={{fontSize:10,color:"#22c55e",fontWeight:700,marginTop:4}}>Valor: {fmt(tot)}</div>
+                </div>
+                <div className="receipt-footer">Obrigado pela preferência! ❤️</div>
+              </div>
+              <div className="modal-btns">
+                <button className="modal-btn secondary" onClick={()=>setModal(null)}>Fechar</button>
+                <button className="modal-btn blue" onClick={()=>{setModal(null);notify("🖨️ Cupom enviado!");}}>🖨️ Imprimir</button>
+              </div>
+            </>}
+
+            {modal==="reservas"&&<>
+              <div className="modal-title">📋 Reservas</div>
+              
+              {/* Formulário de nova reserva */}
+              <div style={{background:"#f0f7ff",borderRadius:12,padding:16,border:"1px solid #bfdbfe",marginBottom:18}}>
+                <div style={{fontSize:14,fontWeight:700,color:"#1e40af",marginBottom:12}}>➕ Nova Reserva</div>
+                <div className="reserva-form-grid">
+                  <div>
+                    <label className="modal-label">Nome do Cliente *</label>
+                    <input className="modal-input" value={rNome} onChange={e=>setRNome(e.target.value)} placeholder="Ex: Sr. Oliveira" style={{padding:10,fontSize:13}}/>
+                  </div>
+                  <div>
+                    <label className="modal-label">Telefone</label>
+                    <input className="modal-input" value={rTel} onChange={e=>setRTel(e.target.value)} placeholder="(99) 99999-9999" style={{padding:10,fontSize:13}}/>
+                  </div>
+                  <div>
+                    <label className="modal-label">Mesa *</label>
+                    <select className="modal-input" value={rMesa} onChange={e=>setRMesa(e.target.value)} style={{padding:10,fontSize:13}}>
+                      <option value="">Selecione</option>
+                      {Object.entries(mesas).filter(([,m])=>m.status==="livre"||m.status==="reservada").map(([id])=>(
+                        <option key={id} value={id}>Mesa {id}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="modal-label">Horário *</label>
+                    <input type="time" className="modal-input" value={rHora} onChange={e=>setRHora(e.target.value)} style={{padding:10,fontSize:13}}/>
+                  </div>
+                  <div>
+                    <label className="modal-label">Nº de Pessoas</label>
+                    <input type="number" className="modal-input" value={rPessoas} onChange={e=>setRPessoas(e.target.value)} min="1" max="20" style={{padding:10,fontSize:13}}/>
+                  </div>
+                  <div>
+                    <label className="modal-label">Observações</label>
+                    <input className="modal-input" value={rObs} onChange={e=>setRObs(e.target.value)} placeholder="Aniversário, cadeirão..." style={{padding:10,fontSize:13}}/>
+                  </div>
+                </div>
+                <button className="modal-btn primary" style={{marginTop:12,width:"100%"}} disabled={!rNome.trim()||!rMesa||!rHora} onClick={addReserva}>
+                  ✅ Cadastrar Reserva
+                </button>
+              </div>
+
+              {/* Lista de reservas */}
+              <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:10}}>
+                Reservas de Hoje ({reservas.length})
+              </div>
+              {reservas.length===0?
+                <div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nenhuma reserva cadastrada.</div>
+              :reservas.map(r=>(
+                <div key={r.id} className="reserva-card" style={{position:"relative"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div className="reserva-nome" style={{display:"flex",alignItems:"center",gap:8}}>
+                        {r.nome}
+                        <span className={`reserva-status ${r.confirmada?"confirmada":"pendente"}`}>
+                          {r.confirmada?"✓ Confirmada":"⏳ Pendente"}
+                        </span>
+                      </div>
+                      <div className="reserva-meta">
+                        🪑 Mesa {r.mesa} &nbsp;·&nbsp; ⏰ {r.hora} &nbsp;·&nbsp; 👥 {r.pessoas} pessoas
+                        {r.tel&&<>&nbsp;·&nbsp; 📱 {r.tel}</>}
+                      </div>
+                      {r.obs&&<div style={{fontSize:11,color:"#f59e0b",marginTop:3}}>📝 {r.obs}</div>}
+                    </div>
+                    <div style={{fontSize:18,fontWeight:700,color:"#94a3b8",flexShrink:0}}>🪑{r.mesa}</div>
+                  </div>
+                  <div className="reserva-actions">
+                    {!r.confirmada&&(
+                      <button className="reserva-action-btn confirm" onClick={()=>{apiPut(`/reservas/${r.id}/confirmar`,{});setReservas(p=>p.map(x=>x.id===r.id?{...x,confirmada:true}:x))}}>
+                        ✓ Confirmar
+                      </button>
+                    )}
+                    <button className="reserva-action-btn" onClick={()=>{
+                      setMesaAtual(r.mesa);setFCliente(r.nome);setFGarcom("João");setModal("abrir");
+                    }}>🪑 Abrir Mesa</button>
+                    <button className="reserva-action-btn danger" onClick={()=>delReserva(r.id)}>✕ Cancelar</button>
+                  </div>
+                </div>
+              ))}
+              <div className="modal-btns"><button className="modal-btn secondary" onClick={()=>setModal(null)}>Fechar</button></div>
+            </>}
+
+            {modal==="relatorios"&&(()=>{
+              const totalVendas = hist.reduce((s,h)=>s+h.total,0);
+              const ticketMedio = hist.length ? totalVendas/hist.length : 0;
+              const totalItens = hist.reduce((s,h)=>s+(h.itens?h.itens.reduce((a,i)=>a+i.qty,0):0),0);
+
+              // Vendas por pagamento
+              const porPag = {};
+              hist.forEach(h=>{porPag[h.pag]=(porPag[h.pag]||0)+h.total;});
+              const pagEntries = Object.entries(porPag).sort((a,b)=>b[1]-a[1]);
+              const maxPag = Math.max(...pagEntries.map(e=>e[1]),1);
+              const pagColors = {"Cartão":"#3b82f6","PIX":"#14b8a6","Dinheiro":"#f59e0b","Vale Refeição":"#8b5cf6"};
+
+              // Vendas por garçom
+              const porGarcom = {};
+              hist.forEach(h=>{
+                if(!porGarcom[h.garcom]) porGarcom[h.garcom]={total:0,qtd:0};
+                porGarcom[h.garcom].total+=h.total;
+                porGarcom[h.garcom].qtd+=1;
+              });
+              const garcomEntries = Object.entries(porGarcom).sort((a,b)=>b[1].total-a[1].total);
+              const maxGarcom = Math.max(...garcomEntries.map(e=>e[1].total),1);
+
+              // Top itens vendidos
+              const porItem = {};
+              hist.forEach(h=>{if(h.itens)h.itens.forEach(i=>{
+                if(!porItem[i.name]) porItem[i.name]={qty:0,revenue:0};
+                porItem[i.name].qty+=i.qty;
+                porItem[i.name].revenue+=i.qty*i.price;
+              });});
+              const itemEntries = Object.entries(porItem).sort((a,b)=>b[1].qty-a[1].qty);
+              const medalColors = ["#f59e0b","#94a3b8","#cd7f32","#64748b","#64748b"];
+
+              // Vendas por hora
+              const porHora = {};
+              for(let h=12;h<=23;h++) porHora[h]=0;
+              hist.forEach(h=>{const hr=parseInt(h.hora);if(porHora[hr]!==undefined)porHora[hr]+=h.total;else porHora[hr]=h.total;});
+              const horaEntries = Object.entries(porHora).sort((a,b)=>+a[0]-(+b[0]));
+              const maxHora = Math.max(...horaEntries.map(e=>e[1]),1);
+
+              // Por mesa
+              const porMesa = {};
+              hist.forEach(h=>{porMesa[h.mesa]=(porMesa[h.mesa]||0)+h.total;});
+              const mesaEntries = Object.entries(porMesa).sort((a,b)=>b[1]-a[1]).slice(0,5);
+              const maxMesa = Math.max(...mesaEntries.map(e=>e[1]),1);
+
+              return <>
+              {/* Fullscreen Header */}
+              <div className="fullscreen-header">
+                <div>
+                  <h2>📊 Relatório Completo do Dia</h2>
+                  <div className="fs-subtitle">{new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+                </div>
+                <button className="fullscreen-close" onClick={()=>setModal(null)}>✕</button>
+              </div>
+
+              <div className="fullscreen-body">
+
+              {/* KPIs - 6 colunas */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:12,marginBottom:24}}>
+                {[
+                  {l:"Faturamento",v:fmt(totalVendas),i:"💰",c:"#166534",bg:"#f0fdf4",bc:"#bbf7d0"},
+                  {l:"Contas Fechadas",v:hist.length,i:"📝",c:"#1e40af",bg:"#eff6ff",bc:"#bfdbfe"},
+                  {l:"Ticket Médio",v:fmt(ticketMedio),i:"📈",c:"#9333ea",bg:"#faf5ff",bc:"#e9d5ff"},
+                  {l:"Itens Vendidos",v:totalItens,i:"🍽️",c:"#b45309",bg:"#fffbeb",bc:"#fde68a"},
+                  {l:"Mesas Ativas",v:ocup,i:"🪑",c:"#dc2626",bg:"#fef2f2",bc:"#fecaca"},
+                  {l:"Mesas Livres",v:livre,i:"✅",c:"#059669",bg:"#ecfdf5",bc:"#a7f3d0"},
+                ].map((r,i)=>(
+                  <div key={i} style={{padding:16,borderRadius:12,background:r.bg,border:`1px solid ${r.bc}`,textAlign:"center"}}>
+                    <div style={{fontSize:28}}>{r.i}</div>
+                    <div style={{fontSize:11,color:"#64748b",marginTop:4}}>{r.l}</div>
+                    <div style={{fontSize:22,fontWeight:800,color:r.c,marginTop:2}}>{r.v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 2 Columns layout */}
+              <div className="report-2col">
+
+                {/* LEFT column */}
+                <div>
+                  {/* Vendas por Cliente — clicável */}
+                  {(()=>{
+                    const porCliente = {};
+                    hist.forEach(h=>{
+                      if(!porCliente[h.cliente]) porCliente[h.cliente]={total:0,qtd:0,itens:0,pag:h.pag,garcom:h.garcom};
+                      porCliente[h.cliente].total+=h.total;
+                      porCliente[h.cliente].qtd+=1;
+                      porCliente[h.cliente].itens+=(h.itens?h.itens.reduce((a,x)=>a+x.qty,0):0);
+                    });
+                    const clienteEntries = Object.entries(porCliente).sort((a,b)=>b[1].total-a[1].total);
+                    return (
+                      <div className="report-section">
+                        <div className="report-section-title">👤 Gastos por Cliente <span style={{fontSize:10,fontWeight:400,color:"#94a3b8",marginLeft:4}}>— clique para ver detalhes</span></div>
+                        {clienteEntries.map(([nome,data],i)=>(
+                          <div key={nome} className="report-rank" style={{cursor:"pointer",transition:"all 0.15s"}}
+                            onClick={()=>{setClienteDetalhe(nome);setModal("clienteDetalhe");}}>
+                            <div className="report-rank-pos" style={{background:i<3?["#f59e0b","#94a3b8","#cd7f32"][i]:"#64748b"}}>{i+1}º</div>
+                            <div style={{flex:1}}>
+                              <div className="report-rank-name" style={{color:"#1e40af",textDecoration:"underline",textDecorationStyle:"dotted"}}>{nome}</div>
+                              <div className="report-rank-detail">
+                                {data.qtd} visita{data.qtd>1?"s":""} · {data.itens} itens · Garçom: {data.garcom}
+                              </div>
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div className="report-rank-value">{fmt(data.total)}</div>
+                              <span style={{color:"#94a3b8",fontSize:14}}>›</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Top Itens */}
+                  <div className="report-section">
+                    <div className="report-section-title">🏆 Itens Mais Vendidos</div>
+                    {itemEntries.slice(0,5).map(([name,data],i)=>(
+                      <div key={name} className="report-rank">
+                        <div className="report-rank-pos" style={{background:medalColors[i]||"#94a3b8"}}>{i+1}º</div>
+                        <div style={{flex:1}}>
+                          <div className="report-rank-name">{name}</div>
+                          <div className="report-rank-detail">{data.qty} vendidos</div>
+                        </div>
+                        <div className="report-rank-value">{fmt(data.revenue)}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Resumo Financeiro */}
+                  <div className="report-section">
+                    <div className="report-section-title">📋 Resumo Financeiro</div>
+                    <div style={{background:"#f8fafc",borderRadius:10,padding:14,border:"1px solid #e2e8f0"}}>
+                      {[
+                        {l:"Faturamento Bruto",v:fmt(totalVendas)},
+                        {l:"Taxa de Serviço (10%)",v:fmt(totalVendas*0.10)},
+                        {l:"Total com Taxa",v:fmt(totalVendas*1.10)},
+                        {l:"Contas Fechadas",v:hist.length},
+                        {l:"Ticket Médio",v:fmt(ticketMedio)},
+                        {l:"Maior Conta",v:fmt(Math.max(...hist.map(h=>h.total)))},
+                        {l:"Menor Conta",v:fmt(Math.min(...hist.map(h=>h.total)))},
+                        {l:"Total de Itens Vendidos",v:totalItens},
+                      ].map((r,i)=>(
+                        <div key={i} className="report-summary-row">
+                          <span className="report-summary-label">{r.l}</span>
+                          <span className="report-summary-value">{r.v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* RIGHT column */}
+                <div>
+                  {/* Vendas por Pagamento */}
+                  <div className="report-section">
+                    <div className="report-section-title">💳 Faturamento por Pagamento</div>
+                    <div className="report-bar-chart">
+                      {pagEntries.map(([name,val])=>(
+                        <div key={name} className="report-bar-row">
+                          <div className="report-bar-label">{name}</div>
+                          <div className="report-bar-track">
+                            <div className="report-bar-fill" style={{width:`${(val/maxPag)*100}%`,background:pagColors[name]||"#64748b"}}/>
+                          </div>
+                          <div className="report-bar-value">{fmt(val)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Vendas por Garçom */}
+                  <div className="report-section">
+                    <div className="report-section-title">🧑‍🍳 Desempenho por Garçom</div>
+                    <div className="report-bar-chart">
+                      {garcomEntries.map(([name,data],i)=>{
+                        const colors = ["#3b82f6","#8b5cf6","#ec4899","#f59e0b","#14b8a6"];
+                        return(
+                        <div key={name} className="report-bar-row">
+                          <div className="report-bar-label">{name}</div>
+                          <div className="report-bar-track">
+                            <div className="report-bar-fill" style={{width:`${(data.total/maxGarcom)*100}%`,background:colors[i%5]}}/>
+                          </div>
+                          <div className="report-bar-value" style={{minWidth:100}}>
+                            {fmt(data.total)}<br/><span style={{fontSize:10,color:"#94a3b8"}}>{data.qtd} vendas</span>
+                          </div>
+                        </div>
+                      );})}
+                    </div>
+                  </div>
+
+                  {/* Movimento por Hora */}
+                  <div className="report-section">
+                    <div className="report-section-title">⏰ Movimento por Horário</div>
+                    <div style={{display:"flex",alignItems:"flex-end",gap:4,height:120,padding:"0 4px",background:"#f8fafc",borderRadius:10,border:"1px solid #e2e8f0",paddingTop:12,paddingBottom:4}}>
+                      {horaEntries.map(([hr,val])=>(
+                        <div key={hr} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",height:"100%",justifyContent:"flex-end"}}>
+                          {val>0&&<div style={{fontSize:9,color:"#64748b",fontWeight:600,marginBottom:2}}>{fmt(val).replace("R$ ","")}</div>}
+                          <div style={{
+                            width:"100%",borderRadius:"4px 4px 0 0",
+                            height:`${Math.max((val/maxHora)*80,4)}px`,
+                            background:val===maxHora?"#3b82f6":val>0?"#93c5fd":"#e2e8f0",
+                            transition:"height 0.4s ease",
+                          }}/>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",gap:4,padding:"0 4px",marginTop:4}}>
+                      {horaEntries.map(([hr])=>(
+                        <div key={hr} style={{flex:1,textAlign:"center",fontSize:10,color:"#64748b",fontWeight:600}}>{hr}h</div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Top Mesas */}
+                  <div className="report-section">
+                    <div className="report-section-title">🪑 Mesas que Mais Faturaram</div>
+                    <div className="report-bar-chart">
+                      {mesaEntries.map(([mesa,val])=>(
+                        <div key={mesa} className="report-bar-row">
+                          <div className="report-bar-label">Mesa {mesa}</div>
+                          <div className="report-bar-track">
+                            <div className="report-bar-fill" style={{width:`${(val/maxMesa)*100}%`,background:"#14b8a6"}}/>
+                          </div>
+                          <div className="report-bar-value">{fmt(val)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+              </div>{/* end 2col */}
+              </div>{/* end fullscreen-body */}
+            </>;})()}
+
+            {modal==="clienteDetalhe"&&clienteDetalhe&&(()=>{
+              const compras = hist.filter(h=>h.cliente===clienteDetalhe);
+              const totalGasto = compras.reduce((s,h)=>s+h.total,0);
+              const totalItensC = compras.reduce((s,h)=>s+(h.itens?h.itens.reduce((a,x)=>a+x.qty,0):0),0);
+              const todosItens = {};
+              compras.forEach(h=>{if(h.itens)h.itens.forEach(i=>{
+                if(!todosItens[i.name])todosItens[i.name]={qty:0,revenue:0};
+                todosItens[i.name].qty+=i.qty;
+                todosItens[i.name].revenue+=i.qty*i.price;
+              });});
+              const itensRank = Object.entries(todosItens).sort((a,b)=>b[1].qty-a[1].qty);
+
+              // Gerar texto do relatório para WhatsApp/impressão
+              const geraTexto = () => {
+                let t = `═══════════════════\n`;
+                t += `  ${pixNome}\n`;
+                t += `  Histórico do Cliente\n`;
+                t += `═══════════════════\n\n`;
+                t += `👤 Cliente: ${clienteDetalhe}\n`;
+                t += `📅 Data: ${new Date().toLocaleDateString("pt-BR")}\n`;
+                t += `📊 Total Gasto: ${fmt(totalGasto)}\n`;
+                t += `🛒 Total de Itens: ${totalItensC}\n`;
+                t += `📝 Visitas: ${compras.length}\n\n`;
+                t += `── Compras Detalhadas ──\n\n`;
+                compras.forEach(h=>{
+                  t += `${h.id} — Mesa ${h.mesa} — ${h.hora}\n`;
+                  t += `Garçom: ${h.garcom} | ${h.pag}\n`;
+                  if(h.itens) h.itens.forEach(i=>{ t += `  ${i.qty}× ${i.name} — ${fmt(i.qty*i.price)}\n`; });
+                  t += `Total: ${fmt(h.total)}\n\n`;
+                });
+                t += `── Itens Favoritos ──\n\n`;
+                itensRank.forEach(([name,data])=>{ t += `${name}: ${data.qty}× = ${fmt(data.revenue)}\n`; });
+                t += `\n═══════════════════\n`;
+                t += `Obrigado pela preferência! ❤️`;
+                return t;
+              };
+
+              return <>
+              {/* Fullscreen Header */}
+              <div className="fullscreen-header">
+                <div>
+                  <h2>👤 {clienteDetalhe}</h2>
+                  <div className="fs-subtitle">Histórico completo de compras</div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button className="fullscreen-close" style={{background:"#25d366",color:"#fff",border:"none",fontSize:14,fontWeight:600,width:"auto",padding:"0 14px",borderRadius:8}}
+                    onClick={()=>{
+                      const texto = encodeURIComponent(geraTexto());
+                      window.open(`https://wa.me/?text=${texto}`,"_blank");
+                      notify("📱 Abrindo WhatsApp...");
+                    }}>💬 WhatsApp</button>
+                  <button className="fullscreen-close" style={{background:"#1e40af",color:"#fff",border:"none",fontSize:14,fontWeight:600,width:"auto",padding:"0 14px",borderRadius:8}}
+                    onClick={()=>{
+                      const win = window.open("","_blank");
+                      win.document.write(`<html><head><title>Histórico - ${clienteDetalhe}</title><style>
+                        body{font-family:monospace;font-size:13px;padding:30px;max-width:500px;margin:0 auto;color:#333;}
+                        h2{text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;}
+                        .section{margin:16px 0;padding:12px;background:#f5f5f5;border-radius:8px;}
+                        .line{display:flex;justify-content:space-between;padding:3px 0;}
+                        .total{font-weight:bold;font-size:15px;border-top:2px dashed #ccc;padding-top:8px;margin-top:8px;}
+                        .footer{text-align:center;margin-top:20px;color:#888;font-size:11px;}
+                        @media print{body{padding:10px;}}
+                      </style></head><body>`);
+                      win.document.write(`<h2>🍺 ${pixNome}<br><small>Histórico do Cliente</small></h2>`);
+                      win.document.write(`<p><strong>👤 ${clienteDetalhe}</strong><br>📅 ${new Date().toLocaleDateString("pt-BR")}<br>📊 Total: ${fmt(totalGasto)} · ${compras.length} visitas · ${totalItensC} itens</p>`);
+                      compras.forEach(h=>{
+                        win.document.write(`<div class="section"><strong>${h.id}</strong> — Mesa ${h.mesa} — ${h.hora} — ${h.pag}<br>Garçom: ${h.garcom}`);
+                        if(h.itens) h.itens.forEach(it=>{win.document.write(`<div class="line"><span>${it.qty}× ${it.name}</span><span>${fmt(it.qty*it.price)}</span></div>`);});
+                        win.document.write(`<div class="line total"><span>Total</span><span>${fmt(h.total)}</span></div></div>`);
+                      });
+                      win.document.write(`<div class="footer">Obrigado pela preferência! ❤️</div></body></html>`);
+                      win.document.close();
+                      setTimeout(()=>win.print(),500);
+                      notify("🖨️ Preparando impressão...");
+                    }}>🖨️ Imprimir</button>
+                  <button className="fullscreen-close" onClick={()=>{setModal("relatorios");setClienteDetalhe(null);}}>←</button>
+                  <button className="fullscreen-close" onClick={()=>{setModal(null);setClienteDetalhe(null);}}>✕</button>
+                </div>
+              </div>
+
+              <div className="fullscreen-body">
+
+              {/* Resumo do cliente */}
+              <div className="hist-summary-bar" style={{background:"#eff6ff",borderColor:"#bfdbfe"}}>
+                <div className="hist-summary-item">
+                  <div className="hist-summary-num" style={{color:"#1e40af"}}>{compras.length}</div>
+                  <div className="hist-summary-label">Visitas</div>
+                </div>
+                <div style={{width:1,background:"#bfdbfe",alignSelf:"stretch"}}/>
+                <div className="hist-summary-item">
+                  <div className="hist-summary-num" style={{color:"#166534"}}>{fmt(totalGasto)}</div>
+                  <div className="hist-summary-label">Total Gasto</div>
+                </div>
+                <div style={{width:1,background:"#bfdbfe",alignSelf:"stretch"}}/>
+                <div className="hist-summary-item">
+                  <div className="hist-summary-num" style={{color:"#9333ea"}}>{totalItensC}</div>
+                  <div className="hist-summary-label">Itens</div>
+                </div>
+                <div style={{width:1,background:"#bfdbfe",alignSelf:"stretch"}}/>
+                <div className="hist-summary-item">
+                  <div className="hist-summary-num" style={{color:"#b45309"}}>{fmt(totalGasto/compras.length)}</div>
+                  <div className="hist-summary-label">Ticket Médio</div>
+                </div>
+              </div>
+
+              {/* 2 column layout */}
+              <div className="report-2col">
+                <div>
+                  {/* Itens favoritos */}
+                  {itensRank.length>0&&(
+                    <div style={{marginBottom:16}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:8}}>⭐ Itens Favoritos</div>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        {itensRank.slice(0,8).map(([name,data],i)=>(
+                          <div key={name} style={{
+                            padding:"6px 12px",borderRadius:20,fontSize:12,fontWeight:600,
+                            background:i===0?"#fef3c7":i===1?"#f1f5f9":"#f8fafc",
+                            border:`1px solid ${i===0?"#fde68a":"#e2e8f0"}`,
+                            color:"#475569",display:"flex",alignItems:"center",gap:4,
+                          }}>
+                            {i===0&&"🏆"}{i===1&&"🥈"}{i===2&&"🥉"} {name} <span style={{color:"#94a3b8"}}>×{data.qty}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Detalhamento de itens consumidos */}
+                  <div style={{marginBottom:16}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:8}}>📊 Resumo de Consumo</div>
+                    <div style={{background:"#f8fafc",borderRadius:10,padding:14,border:"1px solid #e2e8f0"}}>
+                      {itensRank.map(([name,data],i)=>(
+                        <div key={name} className="report-summary-row">
+                          <span className="report-summary-label">{name} (×{data.qty})</span>
+                          <span className="report-summary-value">{fmt(data.revenue)}</span>
+                        </div>
+                      ))}
+                      <div className="report-summary-row" style={{borderTop:"2px solid #e2e8f0",marginTop:6,paddingTop:6}}>
+                        <span style={{fontWeight:700,color:"#1e293b"}}>Total Geral</span>
+                        <span style={{fontWeight:800,color:"#166534",fontSize:16}}>{fmt(totalGasto)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  {/* Cada compra detalhada */}
+                  <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:8}}>🧾 Todas as Compras</div>
+                  <div style={{maxHeight:"calc(100vh - 280px)",overflowY:"auto"}}>
+                {compras.map((h,i)=>(
+                  <div key={i} style={{
+                    marginBottom:10,padding:14,background:"#f8fafc",borderRadius:10,
+                    border:"1px solid #e2e8f0",
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                      <div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontWeight:700,fontSize:13,color:"#1e293b"}}>{h.id}</span>
+                          <span style={{
+                            padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:600,
+                            background:h.pag==="PIX"?"#ccfbf1":h.pag==="Cartão"?"#dbeafe":h.pag==="Dinheiro"?"#fef3c7":"#ede9fe",
+                            color:h.pag==="PIX"?"#0f766e":h.pag==="Cartão"?"#1e40af":h.pag==="Dinheiro"?"#92400e":"#6d28d9",
+                          }}>{h.pag}</span>
+                        </div>
+                        <div style={{fontSize:11,color:"#64748b",marginTop:2}}>
+                          ⏰ {h.hora} · 🪑 Mesa {h.mesa} · 🧑‍🍳 {h.garcom}
+                        </div>
+                      </div>
+                      <div style={{fontWeight:800,fontSize:16,color:"#166534"}}>{fmt(h.total)}</div>
+                    </div>
+                    {h.itens&&(
+                      <div style={{background:"#fff",borderRadius:8,padding:8,border:"1px solid #e2e8f0"}}>
+                        {h.itens.map((it,j)=>(
+                          <div key={j} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12,color:"#475569"}}>
+                            <span>{it.qty}× {it.name}</span>
+                            <span style={{fontWeight:600}}>{fmt(it.qty*it.price)}</span>
+                          </div>
+                        ))}
+                        <div style={{display:"flex",justifyContent:"space-between",borderTop:"1px dashed #e2e8f0",marginTop:4,paddingTop:4,fontSize:12,fontWeight:700,color:"#1e293b"}}>
+                          <span>Subtotal</span>
+                          <span>{fmt(h.itens.reduce((a,x)=>a+x.qty*x.price,0))}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              </div>{/* end right col */}
+              </div>{/* end 2col */}
+
+              {/* Totalizador */}
+              <div style={{
+                marginTop:12,padding:14,background:"#f0fdf4",borderRadius:10,border:"1px solid #bbf7d0",
+                display:"flex",justifyContent:"space-between",alignItems:"center",
+              }}>
+                <span style={{fontSize:13,color:"#166534",fontWeight:600}}>Total de {compras.length} compra{compras.length>1?"s":""}</span>
+                <span style={{fontSize:20,fontWeight:800,color:"#166534"}}>{fmt(totalGasto)}</span>
+              </div>
+
+              </div>{/* end fullscreen-body */}
+            </>;})()}
+
+            {/* ── PAINEL COZINHA ── */}
+            {modal==="painelCozinha"&&<>
+              <div className="modal-title">🔥 Painel da Cozinha</div>
+              <div style={{fontSize:12,color:"#94a3b8",textAlign:"center",marginTop:-14,marginBottom:16}}>
+                Pedidos enviados — em tempo real
+              </div>
+              {(()=>{
+                const pedidosCozinha = Object.entries(mesas)
+                  .filter(([,m])=>m.status==="ocupada" && m.enviadoCozinha.length>0)
+                  .sort((a,b)=>b[1].enviadoCozinha.length - a[1].enviadoCozinha.length);
+                return pedidosCozinha.length===0 ? (
+                  <div style={{textAlign:"center",color:"#94a3b8",padding:30}}>Nenhum pedido na cozinha.</div>
+                ) : pedidosCozinha.map(([id,m])=>(
+                  <div key={id} style={{
+                    marginBottom:12,padding:16,borderRadius:12,border:"2px solid #fde68a",
+                    background:"#fffbeb",
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                      <div>
+                        <span style={{fontWeight:700,fontSize:15,color:"#92400e"}}>🪑 Mesa {id}</span>
+                        <span style={{fontSize:12,color:"#a16207",marginLeft:8}}>👤 {m.cliente} · 🧑‍🍳 {m.garcom}</span>
+                      </div>
+                      <span style={{background:"#fef3c7",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,color:"#92400e"}}>
+                        {m.pedidos.length} itens
+                      </span>
+                    </div>
+                    {m.pedidos.map((p,j)=>(
+                      <div key={j} style={{display:"flex",justifyContent:"space-between",padding:"4px 8px",fontSize:13,color:"#78350f"}}>
+                        <span style={{fontWeight:600}}>{p.qty}× {p.name}</span>
+                      </div>
+                    ))}
+                    <div style={{marginTop:8,fontSize:10,color:"#a16207"}}>
+                      {m.enviadoCozinha.map((e,i)=><div key={i}>📋 {e}</div>)}
+                    </div>
+                  </div>
+                ));
+              })()}
+              <div className="modal-btns"><button className="modal-btn secondary" onClick={()=>setModal(null)}>Fechar</button></div>
+            </>}
+
+            {/* ── GERENCIAR EQUIPE ── */}
+            {modal==="gerenciarStaff"&&<>
+              <div className="modal-title">👥 Equipe do Restaurante</div>
+              <div style={{fontSize:12,color:"#94a3b8",textAlign:"center",marginTop:-14,marginBottom:16}}>
+                Perfis, PINs e permissões
+              </div>
+              <div style={{display:"grid",gap:10}}>
+                {staff.map(s=>{
+                  const mesasAtivas = Object.values(mesas).filter(m=>m.garcom===s.nome).length;
+                  const vendasHoje = hist.filter(h=>h.garcom===s.nome);
+                  const totalVendido = vendasHoje.reduce((a,h)=>a+h.total,0);
+                  return (
+                    <div key={s.id} style={{
+                      display:"flex",alignItems:"center",gap:14,padding:14,
+                      background:"#f8fafc",borderRadius:12,border:"1px solid #e2e8f0",
+                    }}>
+                      <div style={{
+                        width:50,height:50,borderRadius:12,display:"flex",alignItems:"center",
+                        justifyContent:"center",fontSize:28,
+                        background:s.cargo==="gerente"?"#fffbeb":s.cargo==="cozinha"?"#eff6ff":"#f0fdf4",
+                        border:`1px solid ${s.cargo==="gerente"?"#fde68a":s.cargo==="cozinha"?"#bfdbfe":"#bbf7d0"}`,
+                      }}>{s.img}</div>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontWeight:700,fontSize:15,color:"#1e293b"}}>{s.nome}</span>
+                          <span style={{
+                            padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:600,
+                            background:s.cargo==="gerente"?"#fef3c7":s.cargo==="cozinha"?"#dbeafe":"#dcfce7",
+                            color:s.cargo==="gerente"?"#92400e":s.cargo==="cozinha"?"#1e40af":"#166534",
+                            textTransform:"capitalize",
+                          }}>{s.cargo}</span>
+                        </div>
+                        <div style={{fontSize:11,color:"#64748b",marginTop:2}}>
+                          PIN: <strong>{s.pin}</strong>
+                          {s.cargo==="garcom"&&<>
+                            &nbsp;· 🪑 {mesasAtivas} mesa{mesasAtivas!==1?"s":""}
+                            &nbsp;· 💰 {fmt(totalVendido)} vendidos
+                            &nbsp;· 📝 {vendasHoje.length} contas
+                          </>}
+                        </div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        {s.cargo==="gerente" && <span style={{fontSize:10,color:"#f59e0b",fontWeight:600}}>🔑 Acesso Total</span>}
+                        {s.cargo==="garcom" && <span style={{fontSize:10,color:"#22c55e",fontWeight:600}}>📋 Pedidos</span>}
+                        {s.cargo==="cozinha" && <span style={{fontSize:10,color:"#3b82f6",fontWeight:600}}>🍳 Cozinha</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{marginTop:16,padding:14,background:"#f8fafc",borderRadius:10,border:"1px solid #e2e8f0"}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:8}}>🔐 Níveis de Acesso:</div>
+                <div style={{fontSize:12,color:"#64748b",lineHeight:1.8}}>
+                  <strong style={{color:"#92400e"}}>👔 Gerente:</strong> Acesso total — relatórios, fechar contas, pagamentos, configurações, equipe<br/>
+                  <strong style={{color:"#166534"}}>🧑‍🍳 Garçom:</strong> Abrir mesas, anotar pedidos, enviar à cozinha, reservas (sem fechar conta ou ver relatórios)<br/>
+                  <strong style={{color:"#1e40af"}}>🍳 Cozinha:</strong> Visualizar pedidos recebidos, mesas ativas (sem mexer em pedidos)
+                </div>
+              </div>
+              <div className="modal-btns"><button className="modal-btn secondary" onClick={()=>setModal(null)}>Fechar</button></div>
+            </>}
+
+            {modal==="config"&&<>
+              <div className="modal-title">⚙️ Configurações</div>
+              <div className="config-item" style={{marginBottom:10}}>
+                <input type="checkbox" checked={taxaSrv} onChange={()=>setTaxaSrv(!taxaSrv)}/>
+                <span style={{fontWeight:700}}>Taxa de Serviço (10%)</span>
+              </div>
+              <div style={{marginTop:16,marginBottom:8,fontSize:15,fontWeight:700,color:"#1a1a1a"}}>⚡ Dados PIX do Estabelecimento</div>
+              <div style={{marginBottom:10}}>
+                <label className="modal-label">Chave PIX (CPF, CNPJ, Email ou Celular):</label>
+                <input className="modal-input" value={pixKey} onChange={e=>setPixKey(e.target.value)} placeholder="Ex: 12.345.678/0001-90"/>
+              </div>
+              <div style={{marginBottom:10}}>
+                <label className="modal-label">Nome do Estabelecimento:</label>
+                <input className="modal-input" value={pixNome} onChange={e=>setPixNome(e.target.value)} placeholder="Ex: Restaurante Sabor"/>
+              </div>
+              <div style={{marginBottom:10}}>
+                <label className="modal-label">Cidade:</label>
+                <input className="modal-input" value={pixCidade} onChange={e=>setPixCidade(e.target.value)} placeholder="Ex: São Paulo"/>
+              </div>
+              {/* Preview QR */}
+              <div style={{textAlign:"center",padding:16,background:"#f8fafc",borderRadius:10,border:"1px solid #e2e8f0",marginTop:6}}>
+                <div style={{fontSize:12,fontWeight:600,color:"#64748b",marginBottom:8}}>Prévia do QR Code PIX</div>
+                {geraQR(geraPixPayload(0))&&(
+                  <img src={geraQR(geraPixPayload(0),3)} alt="QR PIX Preview" style={{width:120,height:120,borderRadius:8,border:"2px solid #e2e8f0",padding:4,background:"#fff"}}/>
+                )}
+                <div style={{fontSize:11,color:"#888",marginTop:6,wordBreak:"break-all"}}>{pixKey}</div>
+              </div>
+              <div className="modal-btns">
+                <button className="modal-btn blue" onClick={()=>{apiPut('/config',{pix_key:pixKey,pix_nome:pixNome,pix_cidade:pixCidade,taxa_servico:taxaSrv?"10":"0"});notify("✅ Configurações salvas!");setModal(null);}}>💾 Salvar</button>
+                <button className="modal-btn secondary" onClick={()=>setModal(null)}>Fechar</button>
+              </div>
+            </>}
+
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
