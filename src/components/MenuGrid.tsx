@@ -56,6 +56,7 @@ export function MenuGrid({
       return [...prev, { 
         id: Math.random().toString(36).substr(2, 9),
         productId: product.id, 
+        categoryId: product.categoryId,
         name: product.name, 
         price: product.price, 
         quantity: 1,

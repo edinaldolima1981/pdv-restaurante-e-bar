@@ -62,6 +62,7 @@ export interface Category {
   id: string;
   name: string;
   icon: string;
+  type?: 'kitchen' | 'bar' | 'grocery';
 }
 
 export interface Product {
@@ -81,10 +82,11 @@ export interface Product {
 export interface OrderItem {
   id: string;
   productId: string;
+  categoryId?: string;
   name: string;
   price: number;
   quantity: number;
-  status: 'awaiting_confirmation' | 'pending' | 'preparing' | 'delivered' | 'cancelled';
+  status: 'awaiting_confirmation' | 'pending' | 'preparing' | 'delivered' | 'cancelled' | 'closed';
   timestamp: string;
   notes?: string;
 }
@@ -135,4 +137,11 @@ export interface InventoryLog {
   reason: string;
   date: string;
   userId: string;
+}
+
+export interface AppSettings {
+  id: string;
+  restaurantModule: boolean;
+  groceryModule: boolean;
+  appName: string;
 }

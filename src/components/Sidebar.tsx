@@ -8,43 +8,53 @@ import {
   Users,
   UserCog,
   BarChart3,
-  Database,
   LogIn,
   ArrowRight as ArrowRightIcon,
   Package,
   ChefHat,
   Wallet,
-  Truck
+  Truck,
+  Settings,
+  Store
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion } from 'motion/react';
-import { User } from 'firebase/auth';
+import { AppSettings } from '../types';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  onSeedData: () => void;
   onLogin: () => void;
-  user: User | null;
+  onLogout: () => void;
+  user: { id: string, email: string, role: string } | null;
   isCollapsed: boolean;
   setIsCollapsed: (collapsed: boolean) => void;
+  settings: AppSettings;
 }
 
 const MENU_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'active_orders', label: 'Pedidos Ativos', icon: ShoppingBag },
-  { id: 'kds', label: 'Cozinha (KDS)', icon: ChefHat },
-  { id: 'tables', label: 'Mapa de Mesas', icon: TableIcon },
+  { id: 'grocery', label: 'Mercearia', icon: Store, module: 'grocery' },
+  { id: 'active_orders', label: 'Pedidos Ativos', icon: ShoppingBag, module: 'restaurant' },
+  { id: 'kds', label: 'Cozinha (KDS)', icon: ChefHat, module: 'restaurant' },
+  { id: 'tables', label: 'Mapa de Mesas', icon: TableIcon, module: 'restaurant' },
   { id: 'menu', label: 'Cardápio', icon: UtensilsCrossed },
   { id: 'inventory', label: 'Estoque', icon: Package },
   { id: 'financial', label: 'Financeiro', icon: Wallet },
   { id: 'crm', label: 'Clientes (CRM)', icon: Users },
   { id: 'staff', label: 'Equipe', icon: UserCog },
   { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-  { id: 'delivery', label: 'Delivery', icon: Truck },
+  { id: 'delivery', label: 'Delivery', icon: Truck, module: 'restaurant' },
+  { id: 'settings', label: 'Configurações', icon: Settings },
 ];
 
-export function Sidebar({ activeTab, setActiveTab, onSeedData, onLogin, user, isCollapsed, setIsCollapsed }: SidebarProps) {
+export function Sidebar({ activeTab, setActiveTab, onLogin, onLogout, user, isCollapsed, setIsCollapsed, settings }: SidebarProps) {
+  const filteredItems = MENU_ITEMS.filter(item => {
+    if (item.module === 'restaurant') return settings.restaurantModule;
+    if (item.module === 'grocery') return settings.groceryModule;
+    return true;
+  });
+
   return (
     <div className={cn(
       "bg-[#003087] text-white/70 flex flex-col h-screen shadow-xl z-20 transition-all duration-500 ease-in-out relative",
@@ -79,7 +89,7 @@ export function Sidebar({ activeTab, setActiveTab, onSeedData, onLogin, user, is
       </div>
 
       <nav className="flex-1 px-4 space-y-1 mt-6 overflow-y-auto no-scrollbar">
-        {MENU_ITEMS.map((item) => (
+        {filteredItems.map((item) => (
           <button
             key={item.id}
             onClick={() => setActiveTab(item.id)}
@@ -119,15 +129,17 @@ export function Sidebar({ activeTab, setActiveTab, onSeedData, onLogin, user, is
         <div className={cn("flex items-center gap-3 p-4 bg-white/5 rounded-2xl border border-white/10 overflow-hidden", isCollapsed && "p-2 justify-center")}>
           {user ? (
             <>
-              <img src={user.photoURL || ''} alt={user.displayName || ''} className="w-10 h-10 rounded-full border-2 border-white/20 shrink-0" />
+              <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold shrink-0">
+                {user.email[0].toUpperCase()}
+              </div>
               {!isCollapsed && (
                 <motion.div 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="overflow-hidden"
                 >
-                  <p className="text-sm font-bold text-white truncate">{user.displayName || 'Usuário'}</p>
-                  <p className="text-[10px] text-white/40 uppercase font-bold">Administrador</p>
+                  <p className="text-sm font-bold text-white truncate">{user.email.split('@')[0]}</p>
+                  <p className="text-[10px] text-white/40 uppercase font-bold">{user.role}</p>
                 </motion.div>
               )}
             </>
@@ -148,18 +160,9 @@ export function Sidebar({ activeTab, setActiveTab, onSeedData, onLogin, user, is
         {!isCollapsed ? (
           <>
             <button 
-              onClick={() => {
-                if (confirm('Deseja carregar os dados iniciais de teste no Firebase?')) {
-                  onSeedData();
-                }
-              }}
-              className="w-full flex items-center gap-3 px-5 py-4 rounded-2xl text-white/50 hover:bg-blue-500/20 hover:text-blue-400 transition-all font-bold text-sm"
+              onClick={onLogout}
+              className="w-full flex items-center gap-3 px-5 py-4 rounded-2xl text-white/50 hover:bg-red-500/20 hover:text-red-400 transition-all font-bold text-sm"
             >
-              <Database className="w-5 h-5" />
-              Carregar Dados Iniciais
-            </button>
-            
-            <button className="w-full flex items-center gap-3 px-5 py-4 rounded-2xl text-white/50 hover:bg-red-500/20 hover:text-red-400 transition-all font-bold text-sm">
               <LogOut className="w-5 h-5" />
               Sair do Sistema
             </button>
@@ -167,13 +170,7 @@ export function Sidebar({ activeTab, setActiveTab, onSeedData, onLogin, user, is
         ) : (
           <div className="flex flex-col items-center gap-2">
             <button 
-              onClick={onSeedData}
-              title="Carregar Dados"
-              className="p-4 text-white/50 hover:bg-blue-500/20 hover:text-blue-400 rounded-2xl transition-all"
-            >
-              <Database className="w-5 h-5" />
-            </button>
-            <button 
+              onClick={onLogout}
               title="Sair"
               className="p-4 text-white/50 hover:bg-red-500/20 hover:text-red-400 rounded-2xl transition-all"
             >

@@ -1,11 +1,11 @@
 import { Table, Product, Category, Customer } from './types';
 
 export const MOCK_CATEGORIES: Category[] = [
-  { id: '1', name: 'Bebidas', icon: 'Beer' },
-  { id: '2', name: 'Pratos Principais', icon: 'Utensils' },
-  { id: '3', name: 'Entradas', icon: 'Soup' },
-  { id: '4', name: 'Sobremesas', icon: 'IceCream' },
-  { id: '5', name: 'Vinhos', icon: 'Wine' },
+  { id: '1', name: 'Bebidas', icon: 'Beer', type: 'bar' },
+  { id: '2', name: 'Pratos Principais', icon: 'Utensils', type: 'kitchen' },
+  { id: '3', name: 'Entradas', icon: 'Soup', type: 'kitchen' },
+  { id: '4', name: 'Sobremesas', icon: 'IceCream', type: 'kitchen' },
+  { id: '5', name: 'Vinhos', icon: 'Wine', type: 'bar' },
 ];
 
 export const MOCK_PRODUCTS: Product[] = [

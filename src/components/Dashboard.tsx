@@ -33,9 +33,14 @@ export function Dashboard({ orders, customers }: DashboardProps) {
   
   const todayOrders = orders.filter(o => {
     const createdAt = o.createdAt;
+    if (!createdAt) return false;
+    
     const date = (createdAt && typeof createdAt === 'object' && 'toDate' in createdAt) 
       ? (createdAt as { toDate: () => Date }).toDate() 
       : new Date(createdAt as string | number | Date);
+    
+    if (isNaN(date.getTime())) return false;
+    
     const orderDate = date.toISOString().split('T')[0];
     return orderDate === today;
   });
@@ -49,9 +54,14 @@ export function Dashboard({ orders, customers }: DashboardProps) {
   const salesByHour: { [key: string]: number } = {};
   todayOrders.forEach(o => {
     const createdAt = o.createdAt;
+    if (!createdAt) return;
+    
     const date = (createdAt && typeof createdAt === 'object' && 'toDate' in createdAt) 
       ? (createdAt as { toDate: () => Date }).toDate() 
       : new Date(createdAt as string | number | Date);
+    
+    if (isNaN(date.getTime())) return;
+    
     const hour = `${date.getHours().toString().padStart(2, '0')}:00`;
     salesByHour[hour] = (salesByHour[hour] || 0) + o.total;
   });

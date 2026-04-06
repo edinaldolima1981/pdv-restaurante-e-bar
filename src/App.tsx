@@ -4,42 +4,70 @@ import { Dashboard } from './components/Dashboard';
 import { TableGrid } from './components/TableGrid';
 import { MenuGrid } from './components/MenuGrid';
 import { TableDetails } from './components/TableDetails';
+import { GroceryModule } from './components/GroceryModule';
 import { Receipt } from './components/Receipt';
 import { QRCodeModal } from './components/QRCodeModal';
 import { InventoryManager } from './components/InventoryManager';
 import { FinancialModule } from './components/FinancialModule';
 import { KDS } from './components/KDS';
+import { ActiveOrders } from './components/ActiveOrders';
 import { CRM } from './components/CRM';
 import { DeliveryManager } from './components/DeliveryManager';
-import { MOCK_PRODUCTS, MOCK_CATEGORIES, MOCK_CUSTOMERS } from './mockData';
-import { Table, OrderItem, Order, Customer, Staff, Category, Product, Transaction, TableAccount, OrderStatus } from './types';
+import { MOCK_PRODUCTS, MOCK_CATEGORIES } from './mockData';
+import { Table, OrderItem, Order, Customer, Staff, Category, Product, Transaction, TableAccount, OrderStatus, AppSettings } from './types';
 import { Toaster, toast } from 'sonner';
 import { GoogleGenAI } from "@google/genai";
 import { generateAccountingPDF, generateCashClosurePDF } from './lib/pdfGenerator';
-import { MessageSquare, Sparkles, X, UtensilsCrossed, History, ShoppingBag, Table as TableIcon, Plus, Users, UserPlus, Phone, Mail, Star, Clock as ClockIcon, CheckCircle2, Wallet, Edit, Trash2, Download, Search } from 'lucide-react';
+import { MessageSquare, Sparkles, X, Utensils, UtensilsCrossed, History, ShoppingBag, Table as TableIcon, Plus, Users, UserPlus, Phone, Mail, Star, Clock as ClockIcon, Wallet, Edit, Trash2, Download, Search, Database, RefreshCw, LogIn } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from './lib/utils';
-import { db, auth, handleFirestoreError, OperationType } from './firebase';
-import { 
-  collection, 
-  onSnapshot, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  query, 
-  orderBy, 
-  serverTimestamp,
-  writeBatch,
-  DocumentReference
-} from 'firebase/firestore';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  onAuthStateChanged, 
-  signInAnonymously,
-  User
-} from 'firebase/auth';
+import { api } from './services/api';
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('ErrorBoundary caught an error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-screen flex items-center justify-center bg-slate-50 p-8">
+          <div className="max-w-md w-full bg-white p-10 rounded-[2.5rem] shadow-2xl text-center space-y-6 border border-red-100">
+            <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto">
+              <X className="w-10 h-10" />
+            </div>
+            <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Ops! Algo deu errado.</h2>
+            <p className="text-slate-500 font-bold text-sm leading-relaxed">
+              Ocorreu um erro inesperado no sistema. Por favor, tente recarregar a página.
+            </p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-4 bg-[#003087] text-white rounded-2xl font-black text-sm uppercase tracking-widest hover:scale-105 transition-all shadow-xl shadow-blue-900/20"
+            >
+              Recarregar Página
+            </button>
+            {process.env.NODE_ENV === 'development' && (
+              <pre className="mt-4 p-4 bg-slate-50 rounded-xl text-[10px] text-left overflow-auto max-h-40 font-mono text-slate-400">
+                {this.state.error?.toString()}
+              </pre>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -51,8 +79,11 @@ export default function App() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [user, setUser] = useState<{ id: string, email: string, role: string } | null>(api.getCurrentUser());
+  const [isAuthReady] = useState(true);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -89,6 +120,12 @@ export default function App() {
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ id: string, type: 'customer' | 'staff' | 'category' | 'product' } | null>(null);
   const [receiptData, setReceiptData] = useState<{ items: OrderItem[], customer: Customer | null, guestName?: string, tableNumber: number } | null>(null);
   const [qrCodeTable, setQrCodeTable] = useState<Table | null>(null);
+  const [settings, setSettings] = useState<AppSettings>({
+    id: 'default',
+    restaurantModule: true,
+    groceryModule: false,
+    appName: 'ANOTA FÁCIL'
+  });
 
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isMergingTable, setIsMergingTable] = useState(false);
@@ -97,80 +134,63 @@ export default function App() {
   const [transactionAmount, setTransactionAmount] = useState('');
   const [transactionDescription, setTransactionDescription] = useState('');
 
-  // Firebase Auth
+  // Redirect if current tab is disabled
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setIsAuthReady(true);
-      
-      // Auto-login anonymously if no user is present to ensure data can be saved
-      if (!currentUser) {
-        const hasWarned = sessionStorage.getItem('anon_auth_warned');
-        signInAnonymously(auth).catch(err => {
-          console.error('Erro no login anônimo:', err);
-          if (err.code === 'auth/admin-restricted-operation' && !hasWarned) {
-            toast.error('Login anônimo desativado!', {
-              description: 'Ative "Anonymous" no Firebase Console (Authentication > Sign-in method).'
-            });
-            sessionStorage.setItem('anon_auth_warned', 'true');
-          } else if (err.code !== 'auth/admin-restricted-operation') {
-            toast.error('Erro ao realizar login automático. Verifique sua conexão.');
-          }
-        });
+    if (!settings.restaurantModule && (activeTab === 'tables' || activeTab === 'kds' || activeTab === 'active_orders' || activeTab === 'delivery')) {
+      setActiveTab(settings.groceryModule ? 'grocery' : 'dashboard');
+    }
+    if (!settings.groceryModule && activeTab === 'grocery') {
+      setActiveTab(settings.restaurantModule ? 'tables' : 'dashboard');
+    }
+  }, [settings, activeTab]);
+
+  // Real-time Data Fetching (Polling for simplicity in VPS migration)
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchData = async () => {
+      try {
+        const [
+          tablesData,
+          customersData,
+          categoriesData,
+          productsData,
+          staffData,
+          ordersData,
+          transactionsData,
+          settingsData
+        ] = await Promise.all([
+          api.get('tables'),
+          api.get('customers'),
+          api.get('categories'),
+          api.get('products'),
+          api.get('staff'),
+          api.get('orders'),
+          api.get('transactions'),
+          api.get('settings')
+        ]);
+
+        setTables(tablesData.sort((a: Table, b: Table) => a.number - b.number));
+        setCustomers(customersData);
+        setCategories(categoriesData);
+        setProducts(productsData);
+        setStaff(staffData);
+        setOrders(ordersData);
+        setTransactions(transactionsData);
+        
+        const appConfig = settingsData.find((s: AppSettings) => s.id === 'app_config');
+        if (appConfig) {
+          setSettings(appConfig);
+        }
+      } catch (err) {
+        console.error('Error fetching data:', err);
       }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Real-time Data Fetching
-  useEffect(() => {
-    if (!isAuthReady) return;
-
-    const unsubTables = onSnapshot(collection(db, 'tables'), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Table));
-      setTables(data.sort((a, b) => a.number - b.number));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'tables'));
-
-    const unsubCustomers = onSnapshot(collection(db, 'customers'), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer));
-      setCustomers(data);
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'customers'));
-
-    const unsubCategories = onSnapshot(collection(db, 'categories'), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category));
-      setCategories(data);
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'categories'));
-
-    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
-      setProducts(data);
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'products'));
-
-    const unsubStaff = onSnapshot(collection(db, 'staff'), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Staff));
-      setStaff(data);
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'staff'));
-
-    const unsubOrders = onSnapshot(query(collection(db, 'orders'), orderBy('createdAt', 'desc')), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-      setOrders(data);
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'orders'));
-
-    const unsubTransactions = onSnapshot(query(collection(db, 'transactions'), orderBy('date', 'desc')), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
-      setTransactions(data);
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'transactions'));
-
-    return () => {
-      unsubTables();
-      unsubCustomers();
-      unsubCategories();
-      unsubProducts();
-      unsubStaff();
-      unsubOrders();
-      unsubTransactions();
     };
-  }, [isAuthReady, user]);
+
+    fetchData();
+    const interval = setInterval(fetchData, 5000); // Poll every 5 seconds
+    return () => clearInterval(interval);
+  }, [user]);
 
   // Sync selectedTable with real-time updates from tables array
   useEffect(() => {
@@ -195,95 +215,154 @@ export default function App() {
     const urlParams = new URLSearchParams(window.location.search);
     const tableId = urlParams.get('tableId');
     if (tableId && isAuthReady) {
-      if (!user) {
-        signInAnonymously(auth).catch(err => console.error('Anon login error:', err));
-      }
       setClientTableId(tableId);
       setIsClientAppOpen(true);
     }
-  }, [isAuthReady, user]);
+  }, [isAuthReady]);
 
-  const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
     try {
-      await signInWithPopup(auth, provider);
+      const data = await api.login({ email: loginEmail, password: loginPassword });
+      setUser(data.user);
       toast.success('Login realizado com sucesso!');
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Login error:', error);
-      toast.error('Erro ao realizar login.');
+      toast.error('Credenciais inválidas.');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
+  const handleLogout = () => {
+    api.logout();
+    setUser(null);
+    toast.success('Sessão encerrada.');
+  };
+
+  // Use handleLogout in Sidebar or somewhere
+
   const seedData = async () => {
     try {
-      const batch = writeBatch(db);
+      const batchOps: unknown[] = [];
       
       // Tables
       for (let i = 1; i <= 12; i++) {
-        const tableRef = doc(collection(db, 'tables'));
-        batch.set(tableRef, {
-          number: i,
-          capacity: i <= 4 ? 2 : (i <= 8 ? 4 : 6),
-          status: 'available',
-          accounts: [],
-          hasPendingOrder: false
+        batchOps.push({
+          type: 'insert',
+          collection: 'tables',
+          data: {
+            id: `t${i}`,
+            number: i,
+            capacity: i <= 4 ? 2 : (i <= 8 ? 4 : 6),
+            status: 'available',
+            accounts: [],
+            hasPendingOrder: false
+          }
         });
       }
 
       // Categories
-      const categoryRefs: { [key: string]: DocumentReference } = {};
-      for (const cat of MOCK_CATEGORIES) {
-        const catRef = doc(collection(db, 'categories'));
-        batch.set(catRef, { name: cat.name, icon: cat.icon });
-        categoryRefs[cat.id] = catRef;
-      }
+      MOCK_CATEGORIES.forEach(cat => {
+        batchOps.push({
+          type: 'insert',
+          collection: 'categories',
+          data: {
+            id: cat.id,
+            name: cat.name,
+            icon: cat.icon,
+            module: cat.type || 'both'
+          }
+        });
+      });
 
       // Products
-      for (const prod of MOCK_PRODUCTS) {
-        const prodRef = doc(collection(db, 'products'));
-        batch.set(prodRef, {
-          name: prod.name,
-          price: prod.price,
-          categoryId: categoryRefs[prod.categoryId]?.id || prod.categoryId,
-          image: prod.image
+      MOCK_PRODUCTS.forEach(prod => {
+        batchOps.push({
+          type: 'insert',
+          collection: 'products',
+          data: {
+            id: prod.id,
+            name: prod.name,
+            price: prod.price,
+            categoryId: prod.categoryId,
+            image: prod.image,
+            description: prod.description || '',
+            stock: prod.stock || 0
+          }
         });
-      }
+      });
 
-      // Customers
-      for (const cust of MOCK_CUSTOMERS) {
-        const custRef = doc(collection(db, 'customers'));
-        batch.set(custRef, {
-          ...cust,
-          points: cust.points || 0,
-          lastVisit: cust.lastVisit || new Date().toISOString().split('T')[0],
-          createdAt: serverTimestamp()
-        });
-      }
-
-      // Staff
-      const mockStaff = [
-        { name: 'Carlos Garçom', role: 'waiter', phone: '11911111111', email: 'carlos@luxe.com', registration: 'W001', salary: 2500, status: 'active' },
-        { name: 'Ana Gerente', role: 'manager', phone: '11922222222', email: 'ana@luxe.com', registration: 'M001', salary: 5000, status: 'active' },
-        { name: 'Roberto Chef', role: 'chef', phone: '11933333333', email: 'roberto@luxe.com', registration: 'C001', salary: 4500, status: 'active' },
-      ];
-      for (const member of mockStaff) {
-        const staffRef = doc(collection(db, 'staff'));
-        batch.set(staffRef, {
-          ...member,
-          createdAt: serverTimestamp()
-        });
-      }
-
-      await batch.commit();
+      await api.batch(batchOps);
       toast.success('Dados iniciais carregados com sucesso!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'seed');
+      console.error('Seed error:', err);
+      toast.error('Erro ao carregar dados iniciais.');
+    }
+  };
+
+  const resetData = async () => {
+    try {
+      const collectionsToClear = ['tables', 'customers', 'categories', 'products', 'staff', 'orders', 'transactions', 'inventoryLogs'];
+      const batchOps: unknown[] = [];
+      
+      for (const collName of collectionsToClear) {
+        const items = await api.get(collName);
+        items.forEach((item: { id: string }) => {
+          batchOps.push({ type: 'delete', collection: collName, id: item.id });
+        });
+      }
+
+      if (batchOps.length > 0) {
+        await api.batch(batchOps);
+      }
+      
+      toast.success('Todos os dados foram removidos com sucesso!');
+    } catch (err) {
+      console.error('Reset error:', err);
+      toast.error('Erro ao remover dados.');
+    }
+  };
+
+  const resetOrders = async () => {
+    try {
+      const batchOps: unknown[] = [];
+      
+      const ordersData = await api.get('orders');
+      ordersData.forEach((order: { id: string }) => {
+        batchOps.push({ type: 'delete', collection: 'orders', id: order.id });
+      });
+
+      const tablesData = await api.get('tables');
+      tablesData.forEach((table: { id: string }) => {
+        batchOps.push({
+          type: 'update',
+          collection: 'tables',
+          id: table.id,
+          data: {
+            accounts: [],
+            status: 'available',
+            hasPendingOrder: false
+          }
+        });
+      });
+
+      if (batchOps.length > 0) {
+        await api.batch(batchOps);
+      }
+      
+      toast.success('Todos os pedidos foram removidos com sucesso!');
+    } catch (err) {
+      console.error('Reset orders error:', err);
+      toast.error('Erro ao remover pedidos.');
     }
   };
 
   const [newCategory, setNewCategory] = useState({
     name: '',
-    icon: 'Utensils'
+    icon: 'Utensils',
+    type: 'kitchen' as 'kitchen' | 'bar'
   });
 
   const [newStaff, setNewStaff] = useState({
@@ -334,7 +413,7 @@ export default function App() {
   const handleAddTable = async () => {
     const nextNumber = tables.length > 0 ? Math.max(...tables.map(t => t.number)) + 1 : 1;
     try {
-      await addDoc(collection(db, 'tables'), {
+      await api.post('tables', {
         number: nextNumber,
         capacity: 4,
         status: 'available',
@@ -343,7 +422,8 @@ export default function App() {
       });
       toast.success(`Mesa ${nextNumber} criada com sucesso!`);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'tables');
+      console.error('Error adding table:', err);
+      toast.error('Erro ao criar mesa.');
     }
   };
 
@@ -389,7 +469,7 @@ export default function App() {
     }));
 
     try {
-      await updateDoc(doc(db, 'tables', tableId), {
+      await api.put('tables', tableId, {
         status: 'occupied',
         accounts: updatedAccounts
       });
@@ -402,7 +482,8 @@ export default function App() {
       
       toast.success(`Mesa ${table.number} aberta!`);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'tables');
+      console.error('Error opening table:', err);
+      toast.error('Erro ao abrir mesa.');
     }
   };
 
@@ -432,7 +513,7 @@ export default function App() {
     }));
 
     try {
-      await updateDoc(doc(db, 'tables', tableId), {
+      await api.put('tables', tableId, {
         status: 'occupied',
         accounts: updatedAccounts,
         hasPendingOrder: true
@@ -440,7 +521,7 @@ export default function App() {
 
       // Create order records for history/tracking
       for (const item of items) {
-        await addDoc(collection(db, 'orders'), {
+        await api.post('orders', {
           tableId,
           tableNumber: table.number,
           accountId: selectedAccountId,
@@ -450,7 +531,7 @@ export default function App() {
           items: [item],
           total: item.price * item.quantity,
           status: isClientAppOpen ? 'awaiting_confirmation' : 'pending',
-          createdAt: serverTimestamp()
+          createdAt: new Date().toISOString()
         });
       }
 
@@ -460,7 +541,8 @@ export default function App() {
       setIsClientAppOpen(false);
       setClientTableId(null);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'tables');
+      console.error('Error adding order:', err);
+      toast.error('Erro ao realizar pedido.');
     }
   };
 
@@ -471,7 +553,7 @@ export default function App() {
     const updatedAccounts = table.accounts.map(acc => {
       if (acc.id === accountId) {
         const newItems = acc.items.map(item => 
-          itemIds.includes(item.id!) ? { ...item, status: 'delivered' as const } : item
+          itemIds.includes(item.id!) ? { ...item, status: 'pending' as const } : item
         );
         return { ...acc, items: newItems, hasPendingOrder: newItems.some(i => i.status === 'awaiting_confirmation' || i.status === 'pending' || i.status === 'preparing') };
       }
@@ -486,13 +568,32 @@ export default function App() {
     }));
 
     try {
-      await updateDoc(doc(db, 'tables', tableId), {
+      await api.put('tables', tableId, {
         accounts: updatedAccounts,
         hasPendingOrder: updatedAccounts.some(acc => acc.hasPendingOrder)
       });
-      toast.success('Pedido confirmado!');
+
+      // Also update the orders collection so KDS sees it
+      for (const itemId of itemIds) {
+        const orderToUpdate = orders.find(o => 
+          o.tableId === tableId && 
+          o.accountId === accountId && 
+          o.items.some(i => i.id === itemId) &&
+          o.status === 'awaiting_confirmation'
+        );
+
+        if (orderToUpdate) {
+          await api.put('orders', orderToUpdate.id, {
+            status: 'pending',
+            items: orderToUpdate.items.map(i => i.id === itemId ? { ...i, status: 'pending' as const } : i)
+          });
+        }
+      }
+
+      toast.success('Pedido confirmado e enviado para a cozinha!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'tables');
+      console.error('Error confirming order:', err);
+      toast.error('Erro ao confirmar pedido.');
     }
   };
 
@@ -505,33 +606,30 @@ export default function App() {
     if (!sourceTable || !targetTable) return;
 
     try {
-      const batch = writeBatch(db);
+      const batchOps = [
+        {
+          type: 'update',
+          collection: 'tables',
+          id: targetTableId,
+          data: {
+            status: 'occupied',
+            accounts: mergedAccounts,
+            hasPendingOrder: targetTable.hasPendingOrder || sourceTable.hasPendingOrder
+          }
+        },
+        {
+          type: 'update',
+          collection: 'tables',
+          id: sourceTableId,
+          data: {
+            status: 'available',
+            accounts: [],
+            hasPendingOrder: false
+          }
+        }
+      ];
 
-      // Merge accounts
-      const mergedAccounts = [...targetTable.accounts, ...sourceTable.accounts].map(acc => ({
-        ...acc,
-        guestName: acc.guestName || null,
-        items: acc.items.map(item => ({
-          ...item,
-          id: item.id || Math.random().toString(36).substr(2, 9)
-        }))
-      }));
-
-      // Update target table
-      batch.update(doc(db, 'tables', targetTableId), {
-        status: 'occupied',
-        accounts: mergedAccounts,
-        hasPendingOrder: targetTable.hasPendingOrder || sourceTable.hasPendingOrder
-      });
-
-      // Reset source table
-      batch.update(doc(db, 'tables', sourceTableId), {
-        status: 'available',
-        accounts: [],
-        hasPendingOrder: false
-      });
-
-      await batch.commit();
+      await api.batch(batchOps);
       
       setIsMergingTable(false);
       setSourceTableId(null);
@@ -539,7 +637,8 @@ export default function App() {
       
       toast.success(`Mesa ${sourceTable.number} juntada à Mesa ${targetTable.number}!`);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'tables');
+      console.error('Error merging tables:', err);
+      toast.error('Erro ao unificar mesas.');
     }
   };
 
@@ -565,13 +664,41 @@ export default function App() {
     }));
 
     try {
-      await updateDoc(doc(db, 'tables', tableId), {
+      await api.put('tables', tableId, {
         accounts: updatedAccounts,
         hasPendingOrder: updatedAccounts.some(acc => acc.hasPendingOrder)
       });
+
+      // Also update the orders collection
+      const orderToUpdate = orders.find(o => 
+        o.tableId === tableId && 
+        o.accountId === accountId && 
+        o.items.some(i => (i.id === itemId || i.productId === itemId)) &&
+        o.status !== 'closed' && o.status !== 'cancelled'
+      );
+
+      if (orderToUpdate) {
+        const updatedItems = orderToUpdate.items.map(i => 
+          (i.id === itemId || i.productId === itemId) ? { ...i, status: 'delivered' as const } : i
+        );
+        
+        let orderStatus: OrderStatus = 'preparing';
+        if (updatedItems.every(i => i.status === 'closed' || i.status === 'cancelled')) {
+          orderStatus = 'closed';
+        } else if (updatedItems.every(i => i.status === 'delivered' || i.status === 'closed' || i.status === 'cancelled')) {
+          orderStatus = 'delivered';
+        }
+
+        await api.put('orders', orderToUpdate.id, {
+          items: updatedItems,
+          status: orderStatus
+        });
+      }
+
       toast.success('Item entregue!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'tables');
+      console.error('Error delivering item:', err);
+      toast.error('Erro ao entregar item.');
     }
   };
 
@@ -584,27 +711,28 @@ export default function App() {
     
     try {
       if (editingCustomer) {
-        await updateDoc(doc(db, 'customers', editingCustomer.id), newCustomer);
+        await api.put('customers', editingCustomer.id, newCustomer);
         setEditingCustomer(null);
         toast.success('Cadastro realizado!');
       } else {
-        const docRef = await addDoc(collection(db, 'customers'), {
+        const res = await api.post('customers', {
           ...newCustomer,
           points: 0,
           lastVisit: new Date().toISOString().split('T')[0],
-          createdAt: serverTimestamp()
+          createdAt: new Date().toISOString()
         });
         toast.success('Cadastro realizado!');
         
         if (isOpeningTable && selectedTable) {
-          handleOpenTable(docRef.id);
+          handleOpenTable(res.id);
         }
       }
       
       setNewCustomer({ name: '', email: '', phone: '', cpf: '', rg: '', address: '', birthday: '', observation: '' });
       setIsAddingCustomer(false);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'customers');
+      console.error('Error adding customer:', err);
+      toast.error('Erro ao salvar cliente.');
     }
   };
 
@@ -629,11 +757,117 @@ export default function App() {
 
   const confirmDeleteCustomer = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'customers', id));
+      await api.delete('customers', id);
       setDeleteConfirmation(null);
       toast.success('Cliente excluído!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, 'customers');
+      console.error('Error deleting customer:', err);
+      toast.error('Erro ao excluir cliente.');
+    }
+  };
+
+  const handleUpdateSettings = async (newSettings: Partial<AppSettings>) => {
+    try {
+      await api.put('settings', 'app_config', newSettings);
+      toast.success('Configurações atualizadas!');
+    } catch {
+      // If document doesn't exist, try to create it
+      try {
+        const data = {
+          id: 'app_config',
+          restaurantModule: newSettings.restaurantModule ?? settings.restaurantModule,
+          groceryModule: newSettings.groceryModule ?? settings.groceryModule,
+          appName: newSettings.appName ?? settings.appName
+        };
+        await api.post('settings', data);
+        toast.success('Configurações inicializadas!');
+      } catch (err2) {
+        console.error('Error updating settings:', err2);
+        toast.error('Erro ao atualizar configurações.');
+      }
+    }
+  };
+
+  const handleCompleteGrocerySale = async (items: OrderItem[], paymentMethod: string) => {
+    const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const total = subtotal; // Grocery usually doesn't have 10% service tax by default, but we can add if needed
+
+    try {
+      const batchOps: unknown[] = [];
+
+      // 1. Create Transaction
+      batchOps.push({
+        type: 'insert',
+        collection: 'transactions',
+        data: {
+          id: Math.random().toString(36).substr(2, 9),
+          date: new Date().toISOString(),
+          type: 'income',
+          category: 'sales',
+          amount: total,
+          description: `Venda Mercearia - ${items.length} itens`,
+          paymentMethod,
+          status: 'completed',
+          createdAt: new Date().toISOString()
+        }
+      });
+
+      // 2. Create Order Record
+      batchOps.push({
+        type: 'insert',
+        collection: 'orders',
+        data: {
+          id: Math.random().toString(36).substr(2, 9),
+          customerId: 'avulso',
+          customerName: 'Cliente Mercearia',
+          items: items.map(i => ({ ...i, status: 'closed' })),
+          total,
+          subtotal,
+          discount: 0,
+          tax: 0,
+          paymentMethod,
+          type: 'takeaway',
+          status: 'closed',
+          createdAt: new Date().toISOString(),
+          closedAt: new Date().toISOString()
+        }
+      });
+
+      // 3. Deduct Stock
+      for (const item of items) {
+        const product = products.find(p => p.id === item.productId);
+        if (product && product.trackStock) {
+          batchOps.push({
+            type: 'update',
+            collection: 'products',
+            id: product.id,
+            data: {
+              stock: product.stock - item.quantity
+            }
+          });
+          
+          batchOps.push({
+            type: 'insert',
+            collection: 'inventoryLogs',
+            data: {
+              id: Math.random().toString(36).substr(2, 9),
+              productId: product.id,
+              type: 'out',
+              quantity: item.quantity,
+              reason: 'Venda Mercearia',
+              date: new Date().toISOString(),
+              userId: user?.id || 'system',
+              createdAt: new Date().toISOString()
+            }
+          });
+        }
+      }
+
+      await api.batch(batchOps);
+      toast.success('Venda finalizada com sucesso!');
+    } catch (err) {
+      console.error('Error completing grocery sale:', err);
+      toast.error('Erro ao finalizar venda.');
     }
   };
 
@@ -661,11 +895,12 @@ export default function App() {
 
   const confirmDeleteStaff = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'staff', id));
+      await api.delete('staff', id);
       setDeleteConfirmation(null);
       toast.success('Colaborador excluído!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, 'staff');
+      console.error('Error deleting staff:', err);
+      toast.error('Erro ao excluir colaborador.');
     }
   };
 
@@ -678,14 +913,14 @@ export default function App() {
 
     try {
       if (editingStaff) {
-        await updateDoc(doc(db, 'staff', editingStaff.id), newStaff);
+        await api.put('staff', editingStaff.id, newStaff);
         setEditingStaff(null);
         toast.success('Colaborador atualizado!');
       } else {
-        await addDoc(collection(db, 'staff'), {
+        await api.post('staff', {
           ...newStaff,
           status: 'active',
-          createdAt: serverTimestamp()
+          createdAt: new Date().toISOString()
         });
         toast.success('Colaborador contratado!');
       }
@@ -705,7 +940,8 @@ export default function App() {
         startDate: new Date().toISOString().split('T')[0]
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'staff');
+      console.error('Error saving staff:', err);
+      toast.error('Erro ao salvar colaborador.');
     }
   };
 
@@ -732,11 +968,12 @@ export default function App() {
 
   const confirmDeleteProduct = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'products', id));
+      await api.delete('products', id);
       setDeleteConfirmation(null);
       toast.success('Produto excluído!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, 'products');
+      console.error('Error deleting product:', err);
+      toast.error('Erro ao excluir produto.');
     }
   };
 
@@ -746,13 +983,13 @@ export default function App() {
 
     try {
       if (editingProduct) {
-        await updateDoc(doc(db, 'products', editingProduct.id), newProduct);
+        await api.put('products', editingProduct.id, newProduct);
         setEditingProduct(null);
         toast.success('Produto atualizado!');
       } else {
-        await addDoc(collection(db, 'products'), {
+        await api.post('products', {
           ...newProduct,
-          createdAt: serverTimestamp()
+          createdAt: new Date().toISOString()
         });
         toast.success('Produto adicionado!');
       }
@@ -771,7 +1008,8 @@ export default function App() {
         trackStock: true
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'products');
+      console.error('Error saving product:', err);
+      toast.error('Erro ao salvar produto.');
     }
   };
 
@@ -780,15 +1018,16 @@ export default function App() {
     if (!newCategory.name) return;
 
     try {
-      await addDoc(collection(db, 'categories'), {
+      await api.post('categories', {
         ...newCategory,
-        createdAt: serverTimestamp()
+        module: newCategory.type || 'both'
       });
       toast.success('Categoria criada!');
-      setNewCategory({ name: '', icon: 'Utensils' });
+      setNewCategory({ name: '', icon: 'Utensils', type: 'kitchen' });
       setIsAddingCategory(false);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'categories');
+      console.error('Error adding category:', err);
+      toast.error('Erro ao adicionar categoria.');
     }
   };
 
@@ -803,12 +1042,13 @@ export default function App() {
 
   const confirmDeleteCategory = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'categories', id));
+      await api.delete('categories', id);
       setDeleteConfirmation(null);
       toast.success('Categoria excluída!');
       if (selectedCategory === id) setSelectedCategory('all');
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, 'categories');
+      console.error('Error deleting category:', err);
+      toast.error('Erro ao excluir categoria.');
     }
   };
 
@@ -834,14 +1074,31 @@ export default function App() {
     const allItemsEmpty = updatedAccounts.every(acc => acc.items.length === 0);
 
     try {
-      await updateDoc(doc(db, 'tables', tableId), {
+      await api.put('tables', tableId, {
         accounts: updatedAccounts,
         status: allItemsEmpty ? 'available' : table.status,
         hasPendingOrder: updatedAccounts.some(acc => acc.hasPendingOrder)
       });
+
+      // Also cancel the order in the orders collection
+      const orderToCancel = orders.find(o => 
+        o.tableId === tableId && 
+        o.accountId === accountId && 
+        o.items.some(i => (i.id || i.productId) === itemId) &&
+        o.status !== 'closed' && o.status !== 'cancelled'
+      );
+
+      if (orderToCancel) {
+        await api.put('orders', orderToCancel.id, {
+          status: 'cancelled',
+          items: orderToCancel.items.map(i => (i.id || i.productId) === itemId ? { ...i, status: 'cancelled' as const } : i)
+        });
+      }
+
       toast.success('Item removido!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'tables');
+      console.error('Error removing item:', err);
+      toast.error('Erro ao remover item.');
     }
   };
 
@@ -851,48 +1108,55 @@ export default function App() {
     if (!customer) return;
 
     try {
-      await updateDoc(doc(db, 'customers', customerId), {
+      await api.put('customers', customerId, {
         visitCount: (customer.visitCount || 0) + 1,
         totalSpent: (customer.totalSpent || 0) + amount,
         lastVisit: new Date().toISOString().split('T')[0],
         points: (customer.points || 0) + Math.floor(amount)
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'customers');
+      console.error('Error updating customer stats:', err);
     }
   };
 
   const handleDeductStock = async (items: OrderItem[]) => {
-    const batch = writeBatch(db);
-    let hasUpdates = false;
+    const batchOps: unknown[] = [];
 
     for (const item of items) {
       const product = products.find(p => p.id === item.productId);
       if (product && product.trackStock) {
-        batch.update(doc(db, 'products', product.id), {
-          stock: product.stock - item.quantity
+        batchOps.push({
+          type: 'update',
+          collection: 'products',
+          id: product.id,
+          data: {
+            stock: product.stock - item.quantity
+          }
         });
         
-        const logRef = doc(collection(db, 'inventoryLogs'));
-        batch.set(logRef, {
-          productId: product.id,
-          type: 'out',
-          quantity: item.quantity,
-          reason: 'Venda',
-          date: new Date().toISOString(),
-          userId: user?.uid || 'system',
-          createdAt: serverTimestamp()
+        batchOps.push({
+          type: 'insert',
+          collection: 'inventoryLogs',
+          data: {
+            id: Math.random().toString(36).substr(2, 9),
+            productId: product.id,
+            type: 'out',
+            quantity: item.quantity,
+            reason: 'Venda',
+            date: new Date().toISOString(),
+            userId: user?.id || 'system',
+            createdAt: new Date().toISOString()
+          }
         });
-        hasUpdates = true;
       }
     }
 
-    if (hasUpdates) {
-      await batch.commit();
+    if (batchOps.length > 0) {
+      await api.batch(batchOps);
     }
   };
 
-  const handleCloseAccount = async (tableId: string, accountId: string) => {
+  const handleCloseAccount = async (tableId: string, accountId: string, paymentMethod: string = 'card') => {
     const table = tables.find(t => t.id === tableId);
     if (!table) return;
     
@@ -904,18 +1168,18 @@ export default function App() {
 
     try {
       // Add transaction
-      await addDoc(collection(db, 'transactions'), {
+      await api.post('transactions', {
         type: 'income',
         amount: total,
         description: `Venda Mesa ${table.number} - Cliente: ${customers.find(c => c.id === account.customerId)?.name || account.guestName || 'Avulso'}`,
         date: new Date().toISOString(),
-        paymentMethod: account.paymentMethod || 'card',
+        paymentMethod: paymentMethod,
         category: 'sales',
         status: 'completed'
       });
 
       // Add closed order record
-      await addDoc(collection(db, 'orders'), {
+      await api.post('orders', {
         tableId,
         tableNumber: table.number,
         accountId: account.id,
@@ -925,9 +1189,9 @@ export default function App() {
         total,
         subtotal,
         status: 'closed',
-        createdAt: serverTimestamp(),
-        closedAt: serverTimestamp(),
-        paymentMethod: account.paymentMethod || 'card',
+        createdAt: new Date().toISOString(),
+        closedAt: new Date().toISOString(),
+        paymentMethod: paymentMethod,
         type: 'dine_in'
       });
 
@@ -941,7 +1205,7 @@ export default function App() {
 
       // Update table
       const remainingAccounts = table.accounts.filter(acc => acc.id !== accountId);
-      await updateDoc(doc(db, 'tables', tableId), {
+      await api.put('tables', tableId, {
         accounts: remainingAccounts,
         status: remainingAccounts.length === 0 ? 'available' : 'occupied',
         hasPendingOrder: remainingAccounts.some(acc => acc.hasPendingOrder)
@@ -951,11 +1215,12 @@ export default function App() {
       setSelectedAccountId(null);
       toast.success('Conta fechada!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'tables');
+      console.error('Error closing account:', err);
+      toast.error('Erro ao fechar conta.');
     }
   };
 
-  const handleCloseAllAccounts = async (tableId: string) => {
+  const handleCloseAllAccounts = async (tableId: string, paymentMethod: string = 'card') => {
     const table = tables.find(t => t.id === tableId);
     if (!table || table.accounts.length === 0) return;
 
@@ -966,18 +1231,18 @@ export default function App() {
 
     try {
       // Add transaction
-      await addDoc(collection(db, 'transactions'), {
+      await api.post('transactions', {
         type: 'income',
         amount: totalWithTax,
         description: `Venda Mesa ${table.number} - Fechamento Completo (${table.accounts.length} contas)`,
         date: new Date().toISOString(),
-        paymentMethod: 'card',
+        paymentMethod: paymentMethod,
         category: 'sales',
         status: 'completed'
       });
 
       // Add closed order record
-      await addDoc(collection(db, 'orders'), {
+      await api.post('orders', {
         tableId,
         tableNumber: table.number,
         accountId: 'all',
@@ -986,9 +1251,9 @@ export default function App() {
         total: totalWithTax,
         subtotal: totalSubtotal,
         status: 'closed',
-        createdAt: serverTimestamp(),
-        closedAt: serverTimestamp(),
-        paymentMethod: 'card',
+        createdAt: new Date().toISOString(),
+        closedAt: new Date().toISOString(),
+        paymentMethod: paymentMethod,
         type: 'dine_in'
       });
 
@@ -1004,7 +1269,7 @@ export default function App() {
       }
 
       // Update table
-      await updateDoc(doc(db, 'tables', tableId), {
+      await api.put('tables', tableId, {
         status: 'available',
         accounts: [],
         hasPendingOrder: false
@@ -1016,7 +1281,8 @@ export default function App() {
         description: `Total pago: ${formatCurrency(totalWithTax)}`
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'tables');
+      console.error('Error closing all accounts:', err);
+      toast.error('Erro ao fechar todas as contas.');
     }
   };
 
@@ -1039,13 +1305,14 @@ export default function App() {
         description: `Total processado: ${formatCurrency(total)}. O relatório foi arquivado.`
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'orders');
+      console.error('Error closing cash:', err);
+      toast.error('Erro ao fechar caixa.');
     }
   };
 
   const handleTransaction = async (type: 'income' | 'expense', amount: number, description: string) => {
     try {
-      await addDoc(collection(db, 'transactions'), {
+      await api.post('transactions', {
         type,
         amount,
         description,
@@ -1062,7 +1329,8 @@ export default function App() {
       setTransactionDescription('');
       setIsTransactionModalOpen(false);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'transactions');
+      console.error('Error adding transaction:', err);
+      toast.error('Erro ao realizar lançamento.');
     }
   };
 
@@ -1074,26 +1342,105 @@ export default function App() {
       item.id === itemId ? { ...item, status } : item
     );
 
+    // Determine order status
+    let orderStatus: OrderStatus = 'preparing';
+    if (updatedItems.every(i => i.status === 'closed' || i.status === 'cancelled')) {
+      orderStatus = 'closed';
+    } else if (updatedItems.every(i => i.status === 'delivered' || i.status === 'closed' || i.status === 'cancelled')) {
+      orderStatus = 'delivered';
+    }
+
     try {
-      await updateDoc(doc(db, 'orders', orderId), {
+      // Update orders collection
+      await api.put('orders', orderId, {
         items: updatedItems,
-        status: updatedItems.every(i => i.status === 'delivered') ? 'delivered' : 'preparing'
+        status: orderStatus
       });
+
+      // Sync with tables collection
+      const table = tables.find(t => t.id === order.tableId);
+      if (table) {
+        const updatedAccounts = table.accounts.map(acc => {
+          if (acc.id === order.accountId) {
+            const newItems = acc.items.map(item => 
+              item.id === itemId ? { ...item, status } : item
+            );
+            return { 
+              ...acc, 
+              items: newItems, 
+              hasPendingOrder: newItems.some(i => i.status === 'pending' || i.status === 'preparing' || i.status === 'awaiting_confirmation') 
+            };
+          }
+          return acc;
+        }).map(acc => ({
+          ...acc,
+          guestName: acc.guestName || null,
+          items: acc.items.map(item => ({
+            ...item,
+            id: item.id || Math.random().toString(36).substr(2, 9)
+          }))
+        }));
+
+        await api.put('tables', table.id, {
+          accounts: updatedAccounts,
+          hasPendingOrder: updatedAccounts.some(acc => acc.hasPendingOrder)
+        });
+      }
+
       toast.success('Status do item atualizado!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'orders');
+      console.error('Error updating item status:', err);
+      toast.error('Erro ao atualizar status.');
     }
   };
 
   const handleCompleteOrder = async (orderId: string) => {
     try {
-      await updateDoc(doc(db, 'orders', orderId), {
-        status: 'delivered',
-        items: orders.find(o => o.id === orderId)?.items.map(i => ({ ...i, status: 'delivered' })) || []
+      const order = orders.find(o => o.id === orderId);
+      if (!order) return;
+
+      const closedItems = order.items.map(i => ({ ...i, status: 'closed' as const }));
+
+      await api.put('orders', orderId, {
+        status: 'closed',
+        items: closedItems
       });
+
+      // Sync with tables collection
+      const table = tables.find(t => t.id === order.tableId);
+      if (table) {
+        const updatedAccounts = table.accounts.map(acc => {
+          if (acc.id === order.accountId) {
+            const newItems = acc.items.map(item => {
+              const matchingClosedItem = closedItems.find(ci => ci.id === item.id);
+              return matchingClosedItem ? { ...item, status: 'closed' as const } : item;
+            });
+            return { 
+              ...acc, 
+              items: newItems, 
+              hasPendingOrder: newItems.some(i => i.status === 'pending' || i.status === 'preparing' || i.status === 'awaiting_confirmation') 
+            };
+          }
+          return acc;
+        }).map(acc => ({
+          ...acc,
+          guestName: acc.guestName || null,
+          items: acc.items.map(item => ({
+            ...item,
+            id: item.id || Math.random().toString(36).substr(2, 9)
+          }))
+        }));
+
+        await api.put('tables', table.id, {
+          accounts: updatedAccounts,
+          hasPendingOrder: updatedAccounts.some(acc => acc.hasPendingOrder)
+        });
+      }
+
       toast.success('Pedido finalizado!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'orders');
+      console.error('Error completing order:', err);
+      toast.error('Erro ao finalizar pedido.');
     }
   };
 
@@ -1105,48 +1452,57 @@ export default function App() {
                     type === 'out' ? product.stock - quantity : quantity;
 
     try {
-      const batch = writeBatch(db);
-      
-      // Update product stock
-      batch.update(doc(db, 'products', productId), { stock: newStock });
-      
-      // Add inventory log
-      const logRef = doc(collection(db, 'inventoryLogs'));
-      batch.set(logRef, {
-        productId,
-        type,
-        quantity,
-        reason,
-        date: new Date().toISOString(),
-        userId: user?.uid || 'system',
-        createdAt: serverTimestamp()
-      });
+      const batchOps = [
+        {
+          type: 'update',
+          collection: 'products',
+          id: productId,
+          data: { stock: newStock }
+        },
+        {
+          type: 'insert',
+          collection: 'inventoryLogs',
+          data: {
+            id: Math.random().toString(36).substr(2, 9),
+            productId,
+            type,
+            quantity,
+            reason,
+            date: new Date().toISOString(),
+            userId: user?.id || 'system',
+            createdAt: new Date().toISOString()
+          }
+        }
+      ];
 
-      await batch.commit();
+      await api.batch(batchOps);
       toast.success('Estoque atualizado!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'products');
+      console.error('Error updating stock:', err);
+      toast.error('Erro ao atualizar estoque.');
     }
   };
 
   const handleAddTransaction = async (transaction: Omit<Transaction, 'id'>) => {
     try {
-      await addDoc(collection(db, 'transactions'), {
+      await api.post('transactions', {
         ...transaction,
-        createdAt: serverTimestamp()
+        createdAt: new Date().toISOString()
       });
       toast.success('Lançamento realizado!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'transactions');
+      console.error('Error adding transaction:', err);
+      toast.error('Erro ao realizar lançamento.');
     }
   };
 
   const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus) => {
     try {
-      await updateDoc(doc(db, 'orders', orderId), { status });
+      await api.put('orders', orderId, { status });
       toast.success('Status do pedido atualizado!');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'orders');
+      console.error('Error updating order status:', err);
+      toast.error('Erro ao atualizar status.');
     }
   };
 
@@ -1249,7 +1605,7 @@ export default function App() {
             }));
 
             try {
-              await updateDoc(doc(db, 'tables', clientTableId), {
+              await api.put('tables', clientTableId, {
                 accounts: sanitizedAccounts,
                 hasPendingOrder: true,
                 status: 'occupied'
@@ -1257,7 +1613,7 @@ export default function App() {
 
               // Create order records for history/tracking
               for (const item of itemsWithStatus) {
-                await addDoc(collection(db, 'orders'), {
+                await api.post('orders', {
                   tableId: clientTableId,
                   tableNumber: table.number,
                   accountId: account.id,
@@ -1265,7 +1621,7 @@ export default function App() {
                   items: [item],
                   total: item.price * item.quantity,
                   status: 'awaiting_confirmation',
-                  createdAt: serverTimestamp()
+                  createdAt: new Date().toISOString()
                 });
               }
 
@@ -1274,7 +1630,8 @@ export default function App() {
               });
               // setIsClientAppOpen(false); // Removido para manter o cliente no cardápio
             } catch (err) {
-              handleFirestoreError(err, OperationType.WRITE, 'tables');
+              console.error('Error adding client order:', err);
+              toast.error('Erro ao enviar pedido.');
             }
           }}
           products={products}
@@ -1284,16 +1641,83 @@ export default function App() {
     );
   }
 
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-100">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md"
+        >
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-200">
+              <Utensils className="text-white w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-800">Luxe POS</h1>
+            <p className="text-slate-500">Acesse sua conta para continuar</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+              <input 
+                type="email" 
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                placeholder="admin@admin.com"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Senha</label>
+              <input 
+                type="password" 
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={isLoggingIn}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl shadow-lg shadow-blue-200 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isLoggingIn ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  <LogIn className="w-5 h-5" />
+                  Entrar
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+            <p className="text-xs text-slate-400">
+              © 2026 Luxe POS - Sistema de Gestão Inteligente
+            </p>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-screen bg-[#f1f5f9] text-slate-900 font-sans selection:bg-blue-500/30 overflow-hidden">
+    <ErrorBoundary>
+      <div className="flex h-screen bg-[#f1f5f9] text-slate-900 font-sans selection:bg-blue-500/30 overflow-hidden">
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
-        onSeedData={seedData}
         onLogin={handleLogin}
+        onLogout={handleLogout}
         user={user}
         isCollapsed={isSidebarCollapsed}
         setIsCollapsed={setIsSidebarCollapsed}
+        settings={settings}
       />
       
       <main className="flex-1 flex flex-col min-w-0 relative">
@@ -1305,7 +1729,7 @@ export default function App() {
                 customers={customers} 
               />
             )}
-            {activeTab === 'tables' && (
+            {activeTab === 'tables' && settings.restaurantModule && (
               <TableGrid 
                 tables={tables} 
                 customers={customers}
@@ -1314,104 +1738,24 @@ export default function App() {
                 onAddTable={handleAddTable}
               />
             )}
-            {activeTab === 'active_orders' && (
-              <div className="p-12 space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="flex justify-between items-end">
-                  <div>
-                    <h2 className="text-5xl font-black text-slate-800 tracking-tighter uppercase">Pedidos Ativos</h2>
-                    <p className="text-slate-500 font-bold text-lg mt-2">Acompanhe e entregue os pedidos pendentes.</p>
-                  </div>
-                  <div className="bg-white px-8 py-5 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-6">
-                    <div className="text-right">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Pendente</p>
-                      <p className="text-2xl font-black text-slate-800">
-                        {tables.reduce((sum, t) => sum + t.accounts.reduce((accSum, acc) => accSum + acc.items.filter(i => i.status === 'pending').length, 0), 0)} Itens
-                      </p>
-                    </div>
-                    <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600">
-                      <ClockIcon className="w-6 h-6" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {tables.flatMap(t => t.accounts.filter(acc => acc.hasPendingOrder).map(acc => ({ table: t, account: acc }))).map(({ table, account }) => (
-                    <div key={account.id} className="bg-white p-8 rounded-[3rem] border-2 border-red-100 shadow-xl shadow-red-900/5 animate-pulse">
-                      <div className="flex justify-between items-center mb-8">
-                        <div>
-                          <h3 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Mesa {table.number}</h3>
-                          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">
-                            {customers.find(c => c.id === account.customerId)?.name}
-                          </p>
-                        </div>
-                        <div className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest">
-                          {account.items.filter(i => i.status === 'pending' || i.status === 'awaiting_confirmation').length} Pendentes
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        {account.items.filter(i => i.status === 'pending' || i.status === 'awaiting_confirmation').map(item => (
-                          <div key={item.id} className="flex justify-between items-center bg-slate-50 p-5 rounded-2xl border border-slate-100">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-black text-slate-800">{item.name}</p>
-                                {item.status === 'awaiting_confirmation' && (
-                                  <span className="px-2 py-0.5 bg-red-100 text-red-600 rounded-full text-[8px] font-black uppercase tracking-widest animate-pulse">
-                                    Aguardando Confirmação
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Qtd: {item.quantity}</p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              {item.status === 'awaiting_confirmation' && (
-                                <button 
-                                  onClick={() => handleConfirmOrder(table.id, account.id, [item.id!])}
-                                  className="bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-900/20 hover:scale-105 transition-all"
-                                >
-                                  OK
-                                </button>
-                              )}
-                              <button 
-                                onClick={() => handleDeliverItem(table.id, account.id, item.id!)}
-                                className={cn(
-                                  "p-3 rounded-xl shadow-lg transition-all",
-                                  item.status === 'awaiting_confirmation' 
-                                    ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none" 
-                                    : "bg-emerald-500 text-white shadow-emerald-500/20 hover:scale-110"
-                                )}
-                                disabled={item.status === 'awaiting_confirmation'}
-                                title={item.status === 'awaiting_confirmation' ? "Aguardando confirmação" : "Marcar como entregue"}
-                              >
-                                <CheckCircle2 className="w-5 h-5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      <button 
-                        onClick={() => {
-                          const itemIds = account.items
-                            .filter(i => i.status === 'awaiting_confirmation' || i.status === 'pending')
-                            .map(i => i.id!);
-                          handleConfirmOrder(table.id, account.id, itemIds);
-                        }}
-                        className="w-full mt-8 py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-900/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        Confirmar Tudo como Entregue
-                      </button>
-                    </div>
-                  ))}
-                  {tables.every(t => t.accounts.every(acc => !acc.hasPendingOrder)) && (
-                    <div className="col-span-full py-20 bg-white border border-dashed border-slate-300 rounded-[3rem] flex flex-col items-center justify-center text-slate-400 space-y-4">
-                      <ShoppingBag className="w-12 h-12 opacity-20" />
-                      <p className="font-bold uppercase tracking-widest text-sm">Nenhum pedido pendente no momento</p>
-                    </div>
-                  )}
-                </div>
+            {activeTab === 'grocery' && settings.groceryModule && (
+              <div className="h-[calc(100vh-120px)] animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <GroceryModule 
+                  products={products}
+                  categories={categories}
+                  onCompleteSale={handleCompleteGrocerySale}
+                />
               </div>
+            )}
+            {activeTab === 'active_orders' && settings.restaurantModule && (
+              <ActiveOrders 
+                tables={tables}
+                customers={customers}
+                onDeliverItem={handleDeliverItem}
+                onResetData={resetData}
+                onSeedData={seedData}
+                onResetOrders={resetOrders}
+              />
             )}
             {activeTab === 'cash' && (
               <div className="space-y-8 animate-in fade-in duration-500">
@@ -1910,9 +2254,10 @@ export default function App() {
                 </div>
               </div>
             )}
-            {activeTab === 'kds' && (
+            {activeTab === 'kds' && settings.restaurantModule && (
               <KDS 
                 orders={orders} 
+                categories={categories}
                 onUpdateItemStatus={handleUpdateItemStatus}
                 onCompleteOrder={handleCompleteOrder}
               />
@@ -1932,9 +2277,11 @@ export default function App() {
             {activeTab === 'crm' && (
               <CRM 
                 customers={customers}
+                onResetData={resetData}
+                onSeedData={seedData}
               />
             )}
-            {activeTab === 'delivery' && (
+            {activeTab === 'delivery' && settings.restaurantModule && (
               <DeliveryManager 
                 orders={orders}
                 onUpdateOrderStatus={handleUpdateOrderStatus}
@@ -2044,6 +2391,9 @@ export default function App() {
                       >
                         {cat.name}
                       </button>
+                      <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-slate-100 text-slate-400 text-[8px] px-2 py-0.5 rounded-full border border-slate-200 font-black uppercase tracking-tighter">
+                        {cat.type === 'bar' ? 'BAR' : 'COZ'}
+                      </span>
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2229,6 +2579,19 @@ export default function App() {
                             placeholder="Ex: Pizzas, Bebidas, etc."
                           />
                         </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-2">Destino do Pedido *</label>
+                          <select 
+                            required
+                            value={newCategory.type}
+                            onChange={e => setNewCategory({...newCategory, type: e.target.value as 'kitchen' | 'bar' | 'grocery'})}
+                            className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-6 py-5 text-slate-700 font-bold focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
+                          >
+                            <option value="kitchen">Cozinha (KDS)</option>
+                            <option value="bar">Bar (Somente Mesas)</option>
+                            <option value="grocery">Mercearia (Venda Direta)</option>
+                          </select>
+                        </div>
                         <button 
                           type="submit"
                           className="w-full py-6 bg-[#003087] text-white rounded-[1.5rem] font-black text-sm uppercase tracking-[0.2em] shadow-2xl shadow-blue-900/20 hover:scale-105 transition-all mt-4"
@@ -2251,24 +2614,152 @@ export default function App() {
                       <p className="text-slate-400 font-bold">Nenhum pedido realizado ainda.</p>
                     </div>
                   ) : (
-                    orders.map(order => (
-                      <div key={order.id} className="bg-white border border-slate-200 p-6 rounded-3xl flex justify-between items-center shadow-sm hover:shadow-md transition-all">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 font-black text-lg">
-                            {tables.find(t => t.id === order.tableId)?.number}
+                      orders.map(order => {
+                        const table = tables.find(t => t.id === order.tableId);
+                        const tableNumber = table?.number || order.tableNumber || 'S/M';
+                        const createdAt = order.createdAt;
+                        const date = (createdAt && typeof createdAt === 'object' && 'toDate' in createdAt) 
+                          ? (createdAt as { toDate: () => Date }).toDate() 
+                          : new Date(createdAt as string | number | Date);
+                        const dateStr = isNaN(date.getTime()) ? 'Data inválida' : date.toLocaleString();
+
+                        return (
+                          <div key={order.id} className="bg-white border border-slate-200 p-6 rounded-3xl flex justify-between items-center shadow-sm hover:shadow-md transition-all">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 font-black text-lg">
+                                {tableNumber}
+                              </div>
+                              <div>
+                                <p className="font-black text-slate-800">Mesa {tableNumber}</p>
+                                <p className="text-xs text-slate-400 font-bold">{dateStr}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xl font-black text-blue-600">R$ {order.total.toFixed(2)}</p>
+                              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{order.items.length} itens</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-black text-slate-800">Mesa {tables.find(t => t.id === order.tableId)?.number}</p>
-                            <p className="text-xs text-slate-400 font-bold">{new Date(order.createdAt).toLocaleString()}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xl font-black text-blue-600">R$ {order.total.toFixed(2)}</p>
-                          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{order.items.length} itens</p>
-                        </div>
-                      </div>
-                    ))
+                        );
+                      })
                   )}
+                </div>
+              </div>
+            )}
+            {activeTab === 'settings' && (
+              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div>
+                  <h2 className="text-3xl sm:text-5xl font-black text-slate-800 tracking-tighter uppercase">Configurações</h2>
+                  <p className="text-slate-500 font-bold text-sm sm:text-lg mt-1 sm:mt-2">Gerenciamento de dados e sistema.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                    <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center">
+                      <ShoppingBag className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Módulos do Sistema</h3>
+                      <p className="text-slate-400 font-bold text-xs mt-1">Ative ou desative os módulos principais.</p>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                        <div className="flex items-center gap-3">
+                          <UtensilsCrossed className="w-5 h-5 text-slate-400" />
+                          <span className="text-sm font-bold text-slate-700">Bar e Restaurante</span>
+                        </div>
+                        <button 
+                          onClick={() => handleUpdateSettings({ restaurantModule: !settings.restaurantModule })}
+                          className={cn(
+                            "w-12 h-6 rounded-full transition-all relative",
+                            settings.restaurantModule ? "bg-blue-600" : "bg-slate-300"
+                          )}
+                        >
+                          <div className={cn(
+                            "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                            settings.restaurantModule ? "left-7" : "left-1"
+                          )} />
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                        <div className="flex items-center gap-3">
+                          <ShoppingBag className="w-5 h-5 text-slate-400" />
+                          <span className="text-sm font-bold text-slate-700">Mercearia / Venda Rápida</span>
+                        </div>
+                        <button 
+                          onClick={() => handleUpdateSettings({ groceryModule: !settings.groceryModule })}
+                          className={cn(
+                            "w-12 h-6 rounded-full transition-all relative",
+                            settings.groceryModule ? "bg-blue-600" : "bg-slate-300"
+                          )}
+                        >
+                          <div className={cn(
+                            "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                            settings.groceryModule ? "left-7" : "left-1"
+                          )} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                    <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center">
+                      <Database className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Dados de Teste</h3>
+                      <p className="text-slate-400 font-bold text-xs mt-1">Popule o sistema com dados fictícios para demonstração.</p>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        if (confirm('Deseja carregar os dados iniciais de teste no Firebase?')) {
+                          seedData();
+                        }
+                      }}
+                      className="w-full py-4 bg-blue-50 text-blue-600 rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-blue-100 transition-all"
+                    >
+                      Popular Sistema
+                    </button>
+                  </div>
+
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                    <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-3xl flex items-center justify-center">
+                      <RefreshCw className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Limpar Pedidos</h3>
+                      <p className="text-slate-400 font-bold text-xs mt-1">Apaga apenas o histórico de pedidos e libera as mesas.</p>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        if (confirm('Deseja limpar todos os pedidos ativos e histórico?')) {
+                          resetOrders();
+                        }
+                      }}
+                      className="w-full py-4 bg-amber-50 text-amber-600 rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-amber-100 transition-all"
+                    >
+                      Limpar Pedidos
+                    </button>
+                  </div>
+
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                    <div className="w-16 h-16 bg-red-50 text-red-600 rounded-3xl flex items-center justify-center">
+                      <Trash2 className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Limpar Tudo</h3>
+                      <p className="text-slate-400 font-bold text-xs mt-1 text-red-400">CUIDADO: Apaga permanentemente TODOS os dados.</p>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        if (confirm('ATENÇÃO: Isso irá apagar TODOS os dados do sistema. Deseja continuar?')) {
+                          resetData();
+                        }
+                      }}
+                      className="w-full py-4 bg-red-50 text-red-600 rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-red-100 transition-all"
+                    >
+                      Limpar Banco de Dados
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -2584,6 +3075,7 @@ export default function App() {
         <TableDetails 
           table={selectedTable}
           customers={customers}
+          categories={categories}
           selectedAccountId={selectedAccountId}
           onSelectAccount={setSelectedAccountId}
           onClose={() => {
@@ -2986,5 +3478,6 @@ export default function App() {
 
       <Toaster position="top-right" theme="light" closeButton richColors />
     </div>
+    </ErrorBoundary>
   );
 }

@@ -34,7 +34,7 @@ export function CRM({ customers }: CRMProps) {
           <h2 className="text-3xl sm:text-5xl font-black text-slate-800 tracking-tighter uppercase">CRM de Clientes</h2>
           <p className="text-slate-500 font-bold text-sm sm:text-lg mt-1 sm:mt-2">Fidelize e conheça melhor seu público.</p>
         </div>
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-2 sm:gap-4">
           <button 
             className="flex items-center gap-3 px-8 py-5 bg-[#003087] text-white rounded-[2rem] font-black text-sm uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-900/20"
           >

@@ -1,21 +1,23 @@
 import React, { useState } from 'react';
-import { X, Plus, Trash2, CreditCard, Receipt as ReceiptIcon, Users, UserPlus, Printer, CheckCircle2, Merge } from 'lucide-react';
-import { Table, Customer, OrderItem } from '../types';
+import { X, Plus, Trash2, CreditCard, Receipt as ReceiptIcon, Users, UserPlus, Printer, CheckCircle2, Merge, QrCode, DollarSign, MessageSquare } from 'lucide-react';
+import { Table, Customer, OrderItem, Category } from '../types';
 import { formatCurrency, cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { QRCodeSVG } from 'qrcode.react';
 
 interface TableDetailsProps {
   table: Table;
   customers: Customer[];
+  categories: Category[];
   selectedAccountId: string | null;
   onSelectAccount: (accountId: string) => void;
   onClose: () => void;
   onAddMore: () => void;
-  onCloseAccount: (tableId: string, accountId: string) => void;
+  onCloseAccount: (tableId: string, accountId: string, paymentMethod: string) => void;
   onRemoveItem: (tableId: string, accountId: string, itemId: string) => void;
   onDeliverItem: (tableId: string, accountId: string, itemId: string) => void;
   onAddAccount: () => void;
-  onCloseAllAccounts?: (tableId: string) => void;
+  onCloseAllAccounts?: (tableId: string, paymentMethod: string) => void;
   onPrintReceipt?: (items: OrderItem[], customer: Customer | null, guestName?: string) => void;
   onConfirmOrder?: (tableId: string, accountId: string, itemIds: string[]) => void;
   onMergeTable?: (sourceTableId: string) => void;
@@ -24,6 +26,7 @@ interface TableDetailsProps {
 export function TableDetails({ 
   table, 
   customers, 
+  categories,
   selectedAccountId, 
   onSelectAccount, 
   onClose, 
@@ -40,15 +43,42 @@ export function TableDetails({
   const [splitCount, setSplitCount] = useState(1);
   const [isSplitting, setIsSplitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'customers' | 'guests' | 'table'>('customers');
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<string>('card');
+  const [closingType, setClosingType] = useState<'individual' | 'all'>('individual');
 
-  // Reset split state when switching tabs
+  const getCategoryType = (categoryId?: string) => {
+    if (!categoryId) return 'kitchen';
+    const category = categories.find(c => c.id === categoryId);
+    return category?.type || 'kitchen';
+  };
+
+  const registeredAccounts = React.useMemo(() => 
+    table.accounts.filter(acc => acc.customerId !== 'avulso'),
+    [table.accounts]
+  );
+  const guestAccounts = React.useMemo(() => 
+    table.accounts.filter(acc => acc.customerId === 'avulso'),
+    [table.accounts]
+  );
+
+  // Reset split state and auto-select first account when switching tabs
   React.useEffect(() => {
     setIsSplitting(false);
     setSplitCount(1);
-  }, [activeTab]);
 
-  const registeredAccounts = table.accounts.filter(acc => acc.customerId !== 'avulso');
-  const guestAccounts = table.accounts.filter(acc => acc.customerId === 'avulso');
+    if (activeTab === 'customers') {
+      const inTab = registeredAccounts.find(acc => acc.id === selectedAccountId);
+      if (!inTab && registeredAccounts.length > 0) {
+        onSelectAccount(registeredAccounts[0].id);
+      }
+    } else if (activeTab === 'guests') {
+      const inTab = guestAccounts.find(acc => acc.id === selectedAccountId);
+      if (!inTab && guestAccounts.length > 0) {
+        onSelectAccount(guestAccounts[0].id);
+      }
+    }
+  }, [activeTab, registeredAccounts, guestAccounts, selectedAccountId, onSelectAccount]);
 
   const selectedAccount = table.accounts.find(acc => 
     acc.id === selectedAccountId && (
@@ -65,6 +95,29 @@ export function TableDetails({
   const tableSubtotal = table.accounts.reduce((sum, acc) => sum + acc.items.reduce((accSum, item) => accSum + (item.price * item.quantity), 0), 0);
   const tableServiceTax = tableSubtotal * 0.1;
   const tableTotal = tableSubtotal + tableServiceTax;
+
+  const handleWhatsAppShare = () => {
+    const currentTotal = closingType === 'individual' ? total : tableTotal;
+    const currentItems = closingType === 'individual' ? items : table.accounts.flatMap(acc => acc.items);
+    const customerName = closingType === 'individual' 
+      ? (selectedAccount?.guestName || customers.find(c => c.id === selectedAccount?.customerId)?.name || 'Cliente')
+      : `Mesa ${table.number}`;
+
+    let message = `*Recibo - Mesa ${table.number}*\n`;
+    message += `Cliente: ${customerName}\n\n`;
+    message += `*Itens:*\n`;
+    currentItems.forEach(item => {
+      message += `- ${item.quantity}x ${item.name}: ${formatCurrency(item.price * item.quantity)}\n`;
+    });
+    message += `\n*Subtotal:* ${formatCurrency(closingType === 'individual' ? subtotal : tableSubtotal)}\n`;
+    message += `*Taxa (10%):* ${formatCurrency(closingType === 'individual' ? serviceTax : tableServiceTax)}\n`;
+    message += `*TOTAL:* ${formatCurrency(currentTotal)}\n\n`;
+    message += `Forma de Pagamento: ${paymentMethod.toUpperCase()}\n`;
+    message += `Obrigado pela preferência!`;
+
+    const encodedMessage = encodeURIComponent(message);
+    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-md">
@@ -263,6 +316,12 @@ export function TableDetails({
                     <div>
                       <div className="flex items-center gap-1.5 sm:gap-2">
                         <p className="text-xs sm:text-sm font-black text-slate-800 truncate max-w-[120px] sm:max-w-none">{item.name}</p>
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded-full text-[7px] sm:text-[9px] font-black uppercase tracking-wider",
+                          getCategoryType(item.categoryId) === 'bar' ? "bg-amber-100 text-amber-600" : "bg-blue-100 text-blue-600"
+                        )}>
+                          {getCategoryType(item.categoryId) === 'bar' ? 'BAR' : 'COZ'}
+                        </span>
                         {item.status === 'awaiting_confirmation' ? (
                           <span className="px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full text-[7px] sm:text-[10px] font-black uppercase tracking-wider animate-pulse">
                             Confirmação
@@ -409,7 +468,10 @@ export function TableDetails({
             <div className="grid grid-cols-1 gap-3 sm:gap-4">
               <div className="flex gap-2">
                 <button 
-                  onClick={() => onCloseAccount(table.id, selectedAccount.id)}
+                  onClick={() => {
+                    setClosingType('individual');
+                    setIsPaymentModalOpen(true);
+                  }}
                   disabled={items.length === 0}
                   className={cn(
                     "flex-1 py-4 sm:py-6 text-white rounded-xl sm:rounded-[1.5rem] font-black text-[10px] sm:text-sm uppercase tracking-[0.1em] sm:tracking-[0.2em] transition-all shadow-xl flex items-center justify-center gap-2 sm:gap-3",
@@ -418,7 +480,7 @@ export function TableDetails({
                   )}
                 >
                   <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span className="truncate">Pagar Individual</span>
+                  <span className="truncate">Fechar Conta</span>
                 </button>
                 <button 
                   onClick={() => onPrintReceipt?.(items, customers.find(c => c.id === selectedAccount.customerId) || null, selectedAccount.guestName)}
@@ -499,7 +561,10 @@ export function TableDetails({
             </AnimatePresence>
 
             <button 
-              onClick={() => onCloseAllAccounts?.(table.id)}
+              onClick={() => {
+                setClosingType('all');
+                setIsPaymentModalOpen(true);
+              }}
               className="w-full py-4 sm:py-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl sm:rounded-[1.5rem] font-black text-[10px] sm:text-sm uppercase tracking-[0.1em] sm:tracking-[0.2em] transition-all shadow-xl shadow-emerald-900/20 flex flex-col items-center justify-center"
             >
               <div className="flex items-center gap-2 sm:gap-3">
@@ -510,6 +575,118 @@ export function TableDetails({
             </button>
           </div>
         )}
+
+        <AnimatePresence>
+          {isPaymentModalOpen && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm"
+            >
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl overflow-hidden relative"
+              >
+                <button 
+                  onClick={() => setIsPaymentModalOpen(false)}
+                  className="absolute top-6 right-6 p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
+                <div className="text-center mb-8">
+                  <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Forma de Pagamento</h3>
+                  <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Selecione como deseja pagar</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                  {[
+                    { id: 'card', label: 'Cartão', icon: CreditCard },
+                    { id: 'pix', label: 'PIX', icon: QrCode },
+                    { id: 'cash', label: 'Dinheiro', icon: DollarSign },
+                    { id: 'other', label: 'Outros', icon: ReceiptIcon }
+                  ].map((method) => (
+                    <button
+                      key={method.id}
+                      onClick={() => setPaymentMethod(method.id)}
+                      className={cn(
+                        "p-6 rounded-3xl border-2 flex flex-col items-center gap-3 transition-all",
+                        paymentMethod === method.id 
+                          ? "bg-blue-50 border-blue-600 text-blue-600 shadow-lg shadow-blue-900/5" 
+                          : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                      )}
+                    >
+                      <method.icon className="w-8 h-8" />
+                      <span className="font-black text-[10px] uppercase tracking-widest">{method.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {paymentMethod === 'pix' && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex flex-col items-center gap-4 mb-8 p-6 bg-slate-50 rounded-[2rem] border border-slate-100"
+                  >
+                    <div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100">
+                      <QRCodeSVG 
+                        value={`PIX-PAYMENT-${closingType === 'individual' ? selectedAccount?.id : table.id}-${closingType === 'individual' ? total : tableTotal}`} 
+                        size={160}
+                      />
+                    </div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Escaneie para pagar</p>
+                  </motion.div>
+                )}
+
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center px-2">
+                    <span className="text-slate-400 font-bold text-xs uppercase tracking-widest">Total a Pagar</span>
+                    <span className="text-2xl font-black text-slate-800">
+                      {formatCurrency(closingType === 'individual' ? total : tableTotal)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <button 
+                      onClick={() => {
+                        const currentItems = closingType === 'individual' ? items : table.accounts.flatMap(acc => acc.items);
+                        const customer = closingType === 'individual' ? (customers.find(c => c.id === selectedAccount?.customerId) || null) : null;
+                        onPrintReceipt?.(currentItems, customer, closingType === 'individual' ? selectedAccount?.guestName : `Mesa ${table.number}`);
+                      }}
+                      className="py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all"
+                    >
+                      <Printer className="w-4 h-4" />
+                      Imprimir
+                    </button>
+                    <button 
+                      onClick={handleWhatsAppShare}
+                      className="py-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      WhatsApp
+                    </button>
+                  </div>
+
+                  <button 
+                    onClick={() => {
+                      if (closingType === 'individual' && selectedAccount) {
+                        onCloseAccount(table.id, selectedAccount.id, paymentMethod);
+                      } else if (closingType === 'all') {
+                        onCloseAllAccounts?.(table.id, paymentMethod);
+                      }
+                      setIsPaymentModalOpen(false);
+                    }}
+                    className="w-full py-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-emerald-900/20 transition-all active:scale-95"
+                  >
+                    Confirmar e Fechar
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );
