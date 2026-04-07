@@ -162,10 +162,11 @@ export function TableDetails({
           <button 
             onClick={() => setActiveTab('guests')}
             className={cn(
-              "px-3 sm:px-6 py-2 sm:py-3 rounded-t-lg sm:rounded-t-2xl font-black text-[7px] sm:text-[10px] uppercase tracking-widest transition-all border-b-2 sm:border-b-4 whitespace-nowrap",
+              "px-3 sm:px-6 py-2 sm:py-3 rounded-t-lg sm:rounded-t-2xl font-black text-[7px] sm:text-[10px] uppercase tracking-widest transition-all border-b-2 sm:border-b-4 whitespace-nowrap flex items-center gap-2",
               activeTab === 'guests' ? "text-amber-600 border-amber-600 bg-amber-50/50" : "text-slate-400 border-transparent hover:text-slate-600"
             )}
           >
+            <QrCode className="w-3 h-3 sm:w-4 sm:h-4" />
             Avulsos ({guestAccounts.length})
           </button>
           <button 

@@ -18,7 +18,7 @@ import { Table, OrderItem, Order, Customer, Staff, Category, Product, Transactio
 import { Toaster, toast } from 'sonner';
 import { GoogleGenAI } from "@google/genai";
 import { generateAccountingPDF, generateCashClosurePDF } from './lib/pdfGenerator';
-import { MessageSquare, Sparkles, X, Utensils, UtensilsCrossed, History, ShoppingBag, Table as TableIcon, Plus, Users, UserPlus, Phone, Mail, Star, Clock as ClockIcon, Wallet, Edit, Trash2, Download, Search, Database, RefreshCw, LogIn } from 'lucide-react';
+import { MessageSquare, Sparkles, X, Utensils, UtensilsCrossed, ChefHat, History, ShoppingBag, Table as TableIcon, Plus, Users, UserPlus, Phone, Mail, Star, Clock as ClockIcon, Wallet, Edit, Trash2, Download, Search, Database, RefreshCw, LogIn } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from './lib/utils';
 import { api } from './services/api';
@@ -93,7 +93,9 @@ export default function App() {
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   const [isClientAppOpen, setIsClientAppOpen] = useState(false);
+  const [isClientWelcomeOpen, setIsClientWelcomeOpen] = useState(false);
   const [clientTableId, setClientTableId] = useState<string | null>(null);
+  const [clientAccountId, setClientAccountId] = useState<string | null>(() => localStorage.getItem('clientAccountId'));
   const [clientGuestName, setClientGuestName] = useState<string | null>(() => localStorage.getItem('clientGuestName'));
 
   const [newCustomer, setNewCustomer] = useState({ 
@@ -217,6 +219,16 @@ export default function App() {
     if (tableId && isAuthReady) {
       setClientTableId(tableId);
       setIsClientAppOpen(true);
+      
+      const storedAccountId = localStorage.getItem(`clientAccountId_${tableId}`);
+      const storedGuestName = localStorage.getItem(`clientGuestName_${tableId}`);
+      
+      if (storedAccountId) {
+        setClientAccountId(storedAccountId);
+        setClientGuestName(storedGuestName);
+      } else {
+        setIsClientWelcomeOpen(true);
+      }
     }
   }, [isAuthReady]);
 
@@ -362,8 +374,9 @@ export default function App() {
   const [newCategory, setNewCategory] = useState({
     name: '',
     icon: 'Utensils',
-    type: 'kitchen' as 'kitchen' | 'bar'
+    type: 'kitchen' as 'kitchen' | 'bar' | 'grocery'
   });
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
 
   const [newStaff, setNewStaff] = useState({
     name: '',
@@ -1018,17 +1031,36 @@ export default function App() {
     if (!newCategory.name) return;
 
     try {
-      await api.post('categories', {
-        ...newCategory,
-        module: newCategory.type || 'both'
-      });
-      toast.success('Categoria criada!');
+      if (editingCategory) {
+        await api.put('categories', editingCategory.id, {
+          ...newCategory,
+          module: newCategory.type || 'both'
+        });
+        toast.success('Categoria atualizada!');
+      } else {
+        await api.post('categories', {
+          ...newCategory,
+          module: newCategory.type || 'both'
+        });
+        toast.success('Categoria criada!');
+      }
       setNewCategory({ name: '', icon: 'Utensils', type: 'kitchen' });
       setIsAddingCategory(false);
+      setEditingCategory(null);
     } catch (err) {
-      console.error('Error adding category:', err);
-      toast.error('Erro ao adicionar categoria.');
+      console.error('Error adding/updating category:', err);
+      toast.error('Erro ao salvar categoria.');
     }
+  };
+
+  const handleEditCategory = (category: Category) => {
+    setEditingCategory(category);
+    setNewCategory({
+      name: category.name,
+      icon: category.icon,
+      type: category.type || 'kitchen'
+    });
+    setIsAddingCategory(true);
   };
 
   const handleDeleteCategory = (id: string) => {
@@ -1549,7 +1581,57 @@ export default function App() {
 
   if (isClientAppOpen && clientTableId) {
     const table = tables.find(t => t.id === clientTableId);
+
+    if (isClientWelcomeOpen) {
+      return (
+        <div className="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white w-full max-w-md p-10 rounded-[3rem] shadow-2xl text-center space-y-8"
+          >
+            <div className="w-24 h-24 bg-blue-50 text-blue-600 rounded-[2rem] flex items-center justify-center mx-auto shadow-inner">
+              <Utensils className="w-12 h-12" />
+            </div>
+            <div>
+              <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Bem-vindo!</h2>
+              <p className="text-slate-400 font-bold text-sm uppercase tracking-widest mt-2">Mesa {table?.number}</p>
+            </div>
+            <div className="space-y-4">
+              <p className="text-slate-500 font-medium leading-relaxed">
+                Para começar seu pedido, identifique-se (opcional):
+              </p>
+              <input 
+                type="text"
+                value={tempGuestName}
+                onChange={e => setTempGuestName(e.target.value)}
+                placeholder="Seu nome ou apelido..."
+                className="w-full px-6 py-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
+              />
+            </div>
+            <button 
+              onClick={async () => {
+                const name = tempGuestName.trim() || 'Cliente QR';
+                const newId = Math.random().toString(36).substr(2, 9);
+                
+                setClientGuestName(name);
+                setClientAccountId(newId);
+                localStorage.setItem(`clientGuestName_${clientTableId}`, name);
+                localStorage.setItem(`clientAccountId_${clientTableId}`, newId);
+                setIsClientWelcomeOpen(false);
+                setTempGuestName('');
+              }}
+              className="w-full py-6 bg-[#003087] text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-blue-900/20 hover:scale-105 transition-all"
+            >
+              Acessar Cardápio
+            </button>
+          </motion.div>
+        </div>
+      );
+    }
     
+    const currentAccount = table?.accounts.find(acc => acc.id === clientAccountId);
+
     return (
       <div className="fixed inset-0 z-[100] bg-white overflow-hidden">
         <MenuGrid 
@@ -1557,27 +1639,26 @@ export default function App() {
           guestName={clientGuestName || 'Cliente'}
           showCloseButton={false}
           onChangeGuestName={() => {
-            setClientGuestName(null);
-            localStorage.removeItem('clientGuestName');
+            setIsClientWelcomeOpen(true);
           }}
           onClose={() => setIsClientAppOpen(false)}
-          currentItems={table?.accounts[0]?.items || []}
+          currentItems={currentAccount?.items || []}
           onAddOrder={async (items) => {
             const table = tables.find(t => t.id === clientTableId);
-            if (!table) return;
+            if (!table || !clientAccountId) return;
 
-            const itemsWithStatus = items.map(i => ({ 
-              ...i, 
+            const itemsWithStatus = items.map(i => ({
+              ...i,
               id: Math.random().toString(36).substr(2, 9),
-              status: 'awaiting_confirmation' as const 
+              status: 'awaiting_confirmation' as const
             }));
-            
-            let account = table.accounts[0];
+
+            let account = table.accounts.find(acc => acc.id === clientAccountId);
             let updatedAccounts = [...table.accounts];
-            
+
             if (!account) {
               account = {
-                id: Math.random().toString(36).substr(2, 9),
+                id: clientAccountId,
                 customerId: 'avulso',
                 guestName: clientGuestName,
                 items: itemsWithStatus,
@@ -1585,10 +1666,10 @@ export default function App() {
                 openedAt: new Date().toISOString(),
                 paymentStatus: 'pending'
               };
-              updatedAccounts = [account];
+              updatedAccounts.push(account);
             } else {
               updatedAccounts = table.accounts.map(acc => {
-                if (acc.id === account.id) {
+                if (acc.id === clientAccountId) {
                   return { ...acc, items: [...acc.items, ...itemsWithStatus], hasPendingOrder: true };
                 }
                 return acc;
@@ -1616,8 +1697,8 @@ export default function App() {
                 await api.post('orders', {
                   tableId: clientTableId,
                   tableNumber: table.number,
-                  accountId: account.id,
-                  customerName: account.guestName || clientGuestName || 'Cliente QR',
+                  accountId: clientAccountId,
+                  customerName: clientGuestName || 'Cliente QR',
                   items: [item],
                   total: item.price * item.quantity,
                   status: 'awaiting_confirmation',
@@ -1628,7 +1709,6 @@ export default function App() {
               toast.success('Pedido enviado!', {
                 description: 'Aguarde a confirmação do garçom.'
               });
-              // setIsClientAppOpen(false); // Removido para manter o cliente no cardápio
             } catch (err) {
               console.error('Error adding client order:', err);
               toast.error('Erro ao enviar pedido.');
@@ -2391,18 +2471,29 @@ export default function App() {
                       >
                         {cat.name}
                       </button>
+                      <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover/cat:opacity-100 transition-opacity z-10">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditCategory(cat);
+                          }}
+                          className="bg-blue-500 text-white p-1 rounded-full shadow-lg hover:bg-blue-600"
+                        >
+                          <Edit className="w-3 h-3" />
+                        </button>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCategory(cat.id);
+                          }}
+                          className="bg-red-500 text-white p-1 rounded-full shadow-lg hover:bg-red-600"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                       <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-slate-100 text-slate-400 text-[8px] px-2 py-0.5 rounded-full border border-slate-200 font-black uppercase tracking-tighter">
-                        {cat.type === 'bar' ? 'BAR' : 'COZ'}
+                        {cat.type === 'bar' ? 'BAR' : cat.type === 'grocery' ? 'MERC' : 'COZ'}
                       </span>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteCategory(cat.id);
-                        }}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover/cat:opacity-100 transition-opacity shadow-lg"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
                     </div>
                   ))}
                 </div>
@@ -2442,7 +2533,14 @@ export default function App() {
                         </div>
                       </div>
                       <div className="flex-1">
-                        <h4 className="font-black text-slate-800 text-lg leading-tight">{product.name}</h4>
+                        <div className="flex justify-between items-start">
+                          <h4 className="font-black text-slate-800 text-lg leading-tight">{product.name}</h4>
+                          {categories.find(c => c.id === product.categoryId)?.type && (
+                            <span className="text-[8px] font-black uppercase tracking-tighter px-2 py-0.5 bg-slate-100 text-slate-400 rounded-full border border-slate-200">
+                              {categories.find(c => c.id === product.categoryId)?.type === 'bar' ? 'BAR' : 'COZ'}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-blue-600 font-black text-xl mt-2">{formatCurrency(product.price)}</p>
                       </div>
                     </div>
@@ -2562,8 +2660,14 @@ export default function App() {
                       className="bg-white p-12 rounded-[3rem] w-full max-w-lg shadow-2xl"
                     >
                       <div className="flex justify-between items-center mb-10">
-                        <h3 className="text-3xl font-black text-slate-800 tracking-tight uppercase">Nova Categoria</h3>
-                        <button onClick={() => setIsAddingCategory(false)} className="p-3 hover:bg-slate-100 rounded-2xl text-slate-400">
+                        <h3 className="text-3xl font-black text-slate-800 tracking-tight uppercase">
+                          {editingCategory ? 'Editar Categoria' : 'Nova Categoria'}
+                        </h3>
+                        <button onClick={() => {
+                          setIsAddingCategory(false);
+                          setEditingCategory(null);
+                          setNewCategory({ name: '', icon: 'Utensils', type: 'kitchen' });
+                        }} className="p-3 hover:bg-slate-100 rounded-2xl text-slate-400">
                           <X className="w-6 h-6" />
                         </button>
                       </div>
@@ -2579,24 +2683,59 @@ export default function App() {
                             placeholder="Ex: Pizzas, Bebidas, etc."
                           />
                         </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-2">Destino do Pedido *</label>
-                          <select 
-                            required
-                            value={newCategory.type}
-                            onChange={e => setNewCategory({...newCategory, type: e.target.value as 'kitchen' | 'bar' | 'grocery'})}
-                            className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-6 py-5 text-slate-700 font-bold focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
-                          >
-                            <option value="kitchen">Cozinha (KDS)</option>
-                            <option value="bar">Bar (Somente Mesas)</option>
-                            <option value="grocery">Mercearia (Venda Direta)</option>
-                          </select>
+                        
+                        <div className="space-y-4">
+                          <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-2">Destino do Pedido (Onde será impresso/exibido)</label>
+                          <div className="grid grid-cols-2 gap-4">
+                            <button
+                              type="button"
+                              onClick={() => setNewCategory({...newCategory, type: 'kitchen'})}
+                              className={cn(
+                                "flex flex-col items-center gap-3 p-6 rounded-[2rem] border-2 transition-all",
+                                newCategory.type === 'kitchen'
+                                  ? "bg-blue-50 border-[#003087] text-[#003087]"
+                                  : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                              )}
+                            >
+                              <ChefHat className="w-8 h-8" />
+                              <span className="font-black text-xs uppercase tracking-widest">Cozinha</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNewCategory({...newCategory, type: 'bar'})}
+                              className={cn(
+                                "flex flex-col items-center gap-3 p-6 rounded-[2rem] border-2 transition-all",
+                                newCategory.type === 'bar'
+                                  ? "bg-blue-50 border-[#003087] text-[#003087]"
+                                  : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                              )}
+                            >
+                              <UtensilsCrossed className="w-8 h-8" />
+                              <span className="font-black text-xs uppercase tracking-widest">Bar</span>
+                            </button>
+                          </div>
+                          {settings.groceryModule && (
+                            <button
+                              type="button"
+                              onClick={() => setNewCategory({...newCategory, type: 'grocery'})}
+                              className={cn(
+                                "w-full flex items-center justify-center gap-3 p-6 rounded-[2rem] border-2 transition-all",
+                                newCategory.type === 'grocery'
+                                  ? "bg-blue-50 border-[#003087] text-[#003087]"
+                                  : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                              )}
+                            >
+                              <ShoppingBag className="w-6 h-6" />
+                              <span className="font-black text-xs uppercase tracking-widest">Mercearia / Venda Direta</span>
+                            </button>
+                          )}
                         </div>
+
                         <button 
                           type="submit"
                           className="w-full py-6 bg-[#003087] text-white rounded-[1.5rem] font-black text-sm uppercase tracking-[0.2em] shadow-2xl shadow-blue-900/20 hover:scale-105 transition-all mt-4"
                         >
-                          Salvar Categoria
+                          {editingCategory ? 'Salvar Alterações' : 'Criar Categoria'}
                         </button>
                       </form>
                     </motion.div>

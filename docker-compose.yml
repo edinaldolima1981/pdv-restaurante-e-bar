@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  app:
+    container_name: pdv-restaurante-e-bar-app
+    build: .
+    ports:
+      - "3005:3000"
+    depends_on:
+      - db
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://postgres:sua_senha_segura@db:5432/pdv_saas
+      - JWT_SECRET=seu_segredo_saas_123
+    restart: always
+
+  db:
+    image: postgres:15-alpine
+    container_name: pdv-saas-db
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=sua_senha_segura
+      - POSTGRES_DB=pdv_saas
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
